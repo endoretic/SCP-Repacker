@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SCP Repacker for Prosekai</title>
+  <link rel="stylesheet" href="./assets/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <p class="eyebrow">Engine Replace Tool</p>
+      <h1>SCP Repacker for Prosekai</h1>
+      <p class="hero-copy">
+        Repack Sonolus <code>.scp</code> packages for Prosekai levels.
+        Selects the levels package, and repack it with target engine.
+      </p>
+    </section>
+
+    <section class="panel grid">
+      <div class="field field-wide">
+        <label for="levels-file">Levels Package <code>.scp</code></label>
+        <input id="levels-file" name="levels-file" type="file" accept=".scp,application/zip">
+        <p class="hint">Select the exported package that contains the levels.</p>
+      </div>
+
+      <div class="field">
+        <label for="engine-select">Target Engine</label>
+        <select id="engine-select" name="engine-select" disabled>
+          <option>Waiting for engine.scp...</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="output-name">Output Filename</label>
+        <input id="output-name" name="output-name" type="text" value="repacked.scp">
+      </div>
+
+      <div class="field checkbox-row">
+        <label class="checkbox">
+          <input id="replace-defaults" type="checkbox" checked>
+          <span>Reset level defaults to the selected engine resources</span>
+        </label>
+      </div>
+
+      <div class="field checkbox-row">
+        <label class="checkbox">
+          <input id="only-selected-engine" type="checkbox">
+          <span>Keep only the selected engine in the output package</span>
+        </label>
+      </div>
+
+      <div class="field checkbox-row">
+        <label class="checkbox">
+          <input id="keep-old-engines" type="checkbox">
+          <span>Keep old engines from the original levels package</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="panel action-bar">
+      <button id="repack-button" class="primary" type="button" disabled>Start Repack</button>
+      <a id="download-link" class="secondary is-hidden" href="#" download>Download Result</a>
+      <p id="run-status" class="muted">
+        Select a levels package to start.
+      </p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Available Engines</h2>
+        </div>
+      </div>
+      <ul id="engine-list" class="engine-list">
+        <li class="placeholder">Waiting for engine.scp...</li>
+      </ul>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Run Summary</h2>
+        </div>
+      </div>
+      <pre id="summary-output" class="summary">Not started yet.</pre>
+    </section>
+
+    <section class="panel note-panel">
+      <h2>Notes</h2>
+      <ul class="notes">
+        <li>This tool rewrites package metadata and resource references. Compatibility between engines is not guaranteed.</li>
+        <li>Check the <a href="https://github.com/endoretic/SCP-Repacker" target="_blank">GitHub repository</a> for more details.</li>
+        <li>All copyrights belong to respective authors.</li>
+      </ul>
+    </section>
+  </main>
+
+  <script src="./assets/vendor/fflate.js"></script>
+  <script src="./assets/repack-core.js"></script>
+  <script src="./assets/app.js"></script>
+</body>
+</html>
