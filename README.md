@@ -4,7 +4,7 @@
 
 ## English
 
-Sonolus SCP Repacker is a tool for repackaging `.scp` Prosekai-style level packs from Sonolus to use a specified engine (currently supporting RUSH or NextRUSH+). Useful when you want updating old Prosekai levels that still use legacy engines.
+Sonolus SCP Repacker is a tool for repackaging `.scp` Prosekai-style level packs from Sonolus to use a specified engine. It is currently only confirmed to convert correctly for Next Sekai; other targets may run into compatibility issues.
 
 This is a package metadata/resource rewriter. It does **not** convert Sonolus `LevelData`, so gameplay compatibility still depends on whether the original level data works with the selected engine.
 
@@ -63,12 +63,13 @@ Optional flags:
 
 ### Notes
 
+- Currently, only Next Sekai is confirmed to convert correctly. Other targets may import or play incorrectly because of compatibility issues.
 - Delete older imports of the same collection in Sonolus before importing the rebuilt `.scp` to reduce cache/name collisions.
 - If the rebuilt package imports but fails during gameplay, the likely issue is LevelData compatibility, not package repacking.
 
 ## 中文
 
-Sonolus SCP Repacker 用于把 Sonolus 上的 `.scp` Prosekai 类关卡包重打包成使用指定 engine （当前为 `RUSH` 或 `NextRUSH+` ）的版本。当您想要更新使用旧版引擎的 Prosekai 关卡时非常有用。
+Sonolus SCP Repacker 用于把 Sonolus 上的 `.scp` Prosekai 类关卡包重打包成使用指定 engine 的版本。目前仅确认 Next Sekai 可以正常转换，其他目标可能会遇到兼容性问题。
 
 这是一个“包元数据/资源重写工具”，不是谱面转换器。它不会转换 Sonolus `LevelData`，所以实际游玩是否正常仍取决于原始关卡数据是否兼容目标 engine。
 
@@ -127,5 +128,6 @@ python repack_sonolus_scp.py levels.scp engine.scp output.scp --engine NextRUSH_
 
 ### 注意
 
+- 目前仅确认 Next Sekai 可以正常转换。其他目标可能会因为兼容性问题导致导入或游玩异常。
 - 导入新 `.scp` 前，建议先删除 Sonolus 里同名的旧导入包，减少缓存或命名冲突。
 - 如果重打包后的文件能导入但游玩异常，通常是 LevelData 与目标 engine 不兼容，而不是打包流程本身的问题。
