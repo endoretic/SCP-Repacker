@@ -41,12 +41,18 @@
     CriticalTraceFlickNote: "CriticalTraceFlickNote",
     NonDirectionalTraceFlickNote: "NormalTraceFlickNote",
     HiddenSlideStartNote: "AnchorNote",
+    NormalSlideTraceNote: "NormalHeadTraceNote",
+    CriticalSlideTraceNote: "CriticalHeadTraceNote",
+    NormalSlideEndTraceNote: "NormalTailTraceNote",
+    CriticalSlideEndTraceNote: "CriticalTailTraceNote",
     NormalTraceSlideStartNote: "NormalHeadTraceNote",
     CriticalTraceSlideStartNote: "CriticalHeadTraceNote",
     NormalTraceSlideEndNote: "NormalTailTraceNote",
     CriticalTraceSlideEndNote: "CriticalTailTraceNote",
   };
   var EXTENDED_ACTIVE_CONNECTOR_KIND_MAPPING = {
+    // PJSekai+ uses bare connector names for active slides. ProSeka R also uses
+    // bare names for guides, which are filtered before regular slide conversion.
     NormalSlideConnector: 1,
     CriticalSlideConnector: 2,
     NormalActiveSlideConnector: 1,
@@ -293,6 +299,15 @@
     return entityDataMap(entity).get(name);
   }
 
+  function hasField(entity, name) {
+    return entityDataMap(entity).has(name);
+  }
+
+  function getOptionalNum(entity, name) {
+    var value = getField(entity, name);
+    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  }
+
   function getNum(entity, name, defaultValue) {
     var value = getField(entity, name);
     return typeof value === "number" && Number.isFinite(value) ? value : defaultValue || 0;
@@ -471,15 +486,73 @@
     var connectorsByName = new Map();
     var noteSourceEntities = [];
     var connectorSourceEntities = [];
+    var sourceArchetypes = new Set();
+
+    entities.forEach(function (entity) {
+      if (entity && typeof entity === "object") {
+        sourceArchetypes.add(entity.archetype);
+      }
+    });
+
+    var bareConnectorArchetypes = new Set(["NormalSlideConnector", "CriticalSlideConnector"]);
+    var prosekaRActiveConnectorArchetypes = new Set(["NormalActiveSlideConnector", "CriticalActiveSlideConnector"]);
+    var bareConnectorEntities = [];
+    bareConnectorArchetypes.forEach(function (archetype) {
+      (byArchetype.get(archetype) || []).forEach(function (entry) {
+        bareConnectorEntities.push(entry.entity);
+      });
+    });
+
+    var hasProsekaRActiveConnector = Array.from(prosekaRActiveConnectorArchetypes).some(function (archetype) {
+      return sourceArchetypes.has(archetype);
+    });
+    var usesProsekaRConnectorSchema =
+      hasProsekaRActiveConnector ||
+      (bareConnectorEntities.length > 0 &&
+        !bareConnectorEntities.some(function (entity) {
+          return hasField(entity, "startType");
+        }) &&
+        !sourceArchetypes.has("TimeScaleGroup"));
+
+    function isProsekaRGuideConnector(entity) {
+      return (
+        entity &&
+        typeof entity === "object" &&
+        bareConnectorArchetypes.has(entity.archetype) &&
+        usesProsekaRConnectorSchema &&
+        !hasField(entity, "startType")
+      );
+    }
+
+    var guideConnectorSourceEntities = [];
+    entities.forEach(function (entity, index) {
+      if (isProsekaRGuideConnector(entity)) {
+        guideConnectorSourceEntities.push({ index: index, entity: entity });
+      }
+    });
+
+    var guideNoteRefs = new Set();
+    guideConnectorSourceEntities.forEach(function (entry) {
+      ["start", "end", "head", "tail"].forEach(function (key) {
+        var ref = getField(entry.entity, key);
+        if (ref !== undefined && ref !== null) {
+          guideNoteRefs.add(ref);
+        }
+      });
+    });
 
     entities.forEach(function (entity, index) {
       if (!entity || typeof entity !== "object") {
         return;
       }
-      if (Object.prototype.hasOwnProperty.call(EXTENDED_NOTE_TYPE_MAPPING, entity.archetype)) {
+      var isGuideNote = guideNoteRefs.has(index) || (typeof entity.name === "string" && guideNoteRefs.has(entity.name));
+      if (Object.prototype.hasOwnProperty.call(EXTENDED_NOTE_TYPE_MAPPING, entity.archetype) && !isGuideNote) {
         noteSourceEntities.push({ index: index, entity: entity });
       }
-      if (Object.prototype.hasOwnProperty.call(EXTENDED_ACTIVE_CONNECTOR_KIND_MAPPING, entity.archetype)) {
+      if (
+        Object.prototype.hasOwnProperty.call(EXTENDED_ACTIVE_CONNECTOR_KIND_MAPPING, entity.archetype) &&
+        !isProsekaRGuideConnector(entity)
+      ) {
         connectorSourceEntities.push({ index: index, entity: entity });
       }
     });
@@ -552,12 +625,12 @@
       connector.set("activeHead", segmentHead);
       connector.set("activeTail", segmentTail);
 
+      [head, tail, segmentHead, segmentTail].forEach(function (connectorNote) {
+        connectorNote.set("segmentKind", connectorKind);
+        connectorNote.set("segmentAlpha", 1);
+      });
       head.set("connectorEase", ease);
-      head.set("segmentKind", connectorKind);
-      tail.set("segmentKind", connectorKind);
-      segmentHead.set("segmentKind", connectorKind);
-      segmentHead.set("segmentAlpha", 1);
-      segmentTail.set("segmentAlpha", 1);
+      tail.set("connectorEase", ease);
 
       finalEntities.push(connector);
       connectorsByIndex.set(entry.index, connector);
@@ -652,6 +725,71 @@
       anchorPositions.set(newAnchor, new Set([position]));
       return newAnchor;
     }
+
+    function getAnchorFromSourceRef(ref, position, segmentKind, segmentAlpha, connectorEase) {
+      var source = resolveSourceEntity(entities, byName, ref);
+      if (!source) {
+        return undefined;
+      }
+      return getAnchor(
+        getNum(source, "#BEAT", 0),
+        getNum(source, "lane", 0),
+        getNum(source, "size", 0),
+        getTsg(getField(source, "timeScaleGroup")),
+        position,
+        segmentKind,
+        segmentAlpha,
+        connectorEase
+      );
+    }
+
+    function getSourceAlpha(ref) {
+      var source = resolveSourceEntity(entities, byName, ref);
+      if (!source) {
+        return undefined;
+      }
+      var alpha = getOptionalNum(source, "segmentAlpha");
+      if (alpha !== undefined) {
+        return alpha;
+      }
+      return getOptionalNum(source, "alpha");
+    }
+
+    function getGuideConnectorAlphas(entity) {
+      var fade = getOptionalNum(entity, "fade");
+      if (fade !== undefined) {
+        return EXTENDED_FADE_ALPHA_MAPPING[String(fade)] || [1, 1];
+      }
+      var startAlpha = getOptionalNum(entity, "startAlpha");
+      if (startAlpha === undefined) startAlpha = getOptionalNum(entity, "segmentStartAlpha");
+      if (startAlpha === undefined) startAlpha = getSourceAlpha(getField(entity, "start"));
+
+      var endAlpha = getOptionalNum(entity, "endAlpha");
+      if (endAlpha === undefined) endAlpha = getOptionalNum(entity, "segmentEndAlpha");
+      if (endAlpha === undefined) endAlpha = getSourceAlpha(getField(entity, "end"));
+
+      return [startAlpha === undefined ? 1 : startAlpha, endAlpha === undefined ? 1 : endAlpha];
+    }
+
+    guideConnectorSourceEntities.forEach(function (entry) {
+      var entity = entry.entity;
+      var ease = EXTENDED_EASE_TYPE_MAPPING[String(getNum(entity, "ease", 0))] || 1;
+      var kind = 101;
+      var alphas = getGuideConnectorAlphas(entity);
+      var start = getAnchorFromSourceRef(getField(entity, "start"), "proseka_r_guide_segment_head:" + entry.index, kind, alphas[0]);
+      var end = getAnchorFromSourceRef(getField(entity, "end"), "proseka_r_guide_segment_tail:" + entry.index, kind, alphas[1]);
+      var head = getAnchorFromSourceRef(getField(entity, "head"), "proseka_r_guide_head", kind, -1, ease);
+      var tail = getAnchorFromSourceRef(getField(entity, "tail"), "proseka_r_guide_tail", kind);
+      if (!(start && end && head && tail)) {
+        return;
+      }
+      var connector = new EntityBuilder("Connector");
+      connector.set("head", head);
+      connector.set("tail", tail);
+      connector.set("segmentHead", start);
+      connector.set("segmentTail", end);
+      finalEntities.push(connector);
+    });
 
     (byArchetype.get("Guide") || []).forEach(function (entry) {
       var entity = entry.entity;
