@@ -1,3 +1,4 @@
 .vscode/
 testdata/
 __pycache__/
+AGENT.md

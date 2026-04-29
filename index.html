@@ -14,11 +14,8 @@
       <p class="hero-copy">
         Repack Sonolus <code>.scp</code> packages for Prosekai levels.
         Select the levels package,<br>
-        and repack it with the target engine.
-      </p>
-      <p class="hero-copy">
-        Compatibility notice: currently only Next Sekai is confirmed to convert correctly.
-        Other targets may have gameplay or import compatibility issues.
+        and repack it with the target engine.<br>
+        Verified source engines: Next Sekai, PJSekai+, and ProSeka R.
       </p>
     </section>
 
@@ -45,6 +42,13 @@
         <label class="checkbox">
           <input id="replace-defaults" type="checkbox" checked>
           <span>Reset level defaults to the selected engine resources</span>
+        </label>
+      </div>
+
+      <div class="field checkbox-row">
+        <label class="checkbox">
+          <input id="convert-level-data" type="checkbox" checked>
+          <span>Convert supported PJSekai+ / ProSeka R LevelData</span>
         </label>
       </div>
 
@@ -94,8 +98,7 @@
     <section class="panel note-panel">
       <h2>Notes</h2>
       <ul class="notes">
-        <li>Currently, only Next Sekai is confirmed to convert correctly. Other targets may run into compatibility issues.</li>
-        <li>This tool rewrites package metadata and resource references. Compatibility between engines is not guaranteed.</li>
+        <li>Enable LevelData conversion for PJSekai+ and ProSeka R packages before importing into RUSH / NextRUSH+.</li>
         <li>Check the <a href="https://github.com/endoretic/SCP-Repacker" target="_blank">GitHub repository</a> for more details.</li>
         <li>All copyrights belong to respective authors.</li>
       </ul>
@@ -103,6 +106,7 @@
   </main>
 
   <script src="./assets/vendor/fflate.js"></script>
+  <script src="./assets/repack-leveldata.js"></script>
   <script src="./assets/repack-core.js"></script>
   <script src="./assets/app.js"></script>
 </body>

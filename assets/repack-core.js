@@ -1,14 +1,17 @@
 (function (root, factory) {
   if (typeof module !== "undefined" && typeof module.exports === "object") {
-    module.exports = factory(root, require("./vendor/fflate.js"));
+    module.exports = factory(root, require("./vendor/fflate.js"), require("./repack-leveldata.js"));
     return;
   }
-  root.SonolusRepackCore = factory(root, root.fflate);
-})(typeof globalThis !== "undefined" ? globalThis : this, function (root, fflate) {
+  root.SonolusRepackCore = factory(root, root.fflate, root.SonolusRepackLevelData);
+})(typeof globalThis !== "undefined" ? globalThis : this, function (root, fflate, levelData) {
   "use strict";
 
   if (!fflate) {
     throw new Error("fflate is required before loading repack-core.js");
+  }
+  if (!levelData) {
+    throw new Error("SonolusRepackLevelData is required before loading repack-core.js");
   }
 
   var unzipSync = fflate.unzipSync;
@@ -23,7 +26,6 @@
     ["effect", "useEffect"],
     ["particle", "useParticle"],
   ];
-
   var textDecoder = new TextDecoder("utf-8");
   var textEncoder = new TextEncoder();
 
@@ -606,10 +608,43 @@
     });
     lines.push("Copied repository files from target package: " + summary.copiedTargetRepository);
     lines.push("Copied repository files from resource package: " + summary.copiedResourceRepository);
+    if (summary.convertLevelData) {
+      lines.push("LevelData conversion results:");
+      if (!summary.levelDataConversionResults.length) {
+        lines.push("  none");
+      }
+      summary.levelDataConversionResults.forEach(function (result) {
+        if (result.action === "converted") {
+          lines.push(
+            "  converted " +
+              result.hash +
+              " -> " +
+              result.newHash +
+              " (" +
+              result.entitiesBefore +
+              " entities -> " +
+              result.entitiesAfter +
+              ")"
+          );
+        } else if (result.error) {
+          lines.push("  " + result.action + ": " + result.hash + " (" + result.error + ")");
+        } else {
+          lines.push("  " + result.action + ": " + result.hash);
+        }
+      });
+    }
     lines.push(formatValidationSummary("Validation engine mismatches:", summary.engineMismatches));
     lines.push(formatValidationSummary("Validation default-resource warnings:", summary.defaultUsageWarnings));
     lines.push(formatValidationSummary("Validation missing repository files:", summary.missingRepositoryFiles));
-    lines.push("Warning: this tool rewrites engine references and merges resources. It does not convert Sonolus LevelData.");
+    if (summary.convertLevelData) {
+      lines.push(
+        "LevelData conversion: enabled for verified PJSekai+ / ProSeka R source formats."
+      );
+    } else {
+      lines.push(
+        "LevelData conversion: disabled. Package metadata and resources were rewritten only."
+      );
+    }
     lines.push("Tip: delete the old imported collection in Sonolus before importing the new .scp, to avoid cache/name collisions.");
     return lines.join("\n");
   }
@@ -621,6 +656,10 @@
     var sourceEngines = summarizeLevelEngines(targetEntries);
     var targetEngine = extractEngineItem(resourceEntries, options.engineName);
     var output = new Map(targetEntries);
+    var levelDataConversionResults = [];
+    if (options.convertLevelData) {
+      levelDataConversionResults = levelData.convertLevelDataEntries(output);
+    }
     var patchCounts = patchLevels(output, targetEngine, replaceDefaults);
     var copiedTargetRepository = copyRepository(output, targetEntries);
     var copiedResourceRepository = copyRepository(output, resourceEntries);
@@ -656,6 +695,8 @@
       mergedCategoryCounts: mergedCategoryCounts,
       copiedTargetRepository: copiedTargetRepository,
       copiedResourceRepository: copiedResourceRepository,
+      convertLevelData: Boolean(options.convertLevelData),
+      levelDataConversionResults: levelDataConversionResults,
       engineMismatches: consistency.mismatches,
       defaultUsageWarnings: consistency.defaultUsageWarnings,
       missingRepositoryFiles: missingRepositoryFiles,

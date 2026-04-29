@@ -4,9 +4,26 @@
 
 ## English
 
-Sonolus SCP Repacker is a tool for repackaging `.scp` Prosekai-style level packs from Sonolus to use a specified engine. It is currently only confirmed to convert correctly for Next Sekai; other targets may run into compatibility issues.
+Sonolus SCP Repacker repackages Sonolus `.scp` Prosekai-style level packs to use a selected target engine from the bundled resource pack.
 
-This is a package metadata/resource rewriter. It does **not** convert Sonolus `LevelData`, so gameplay compatibility still depends on whether the original level data works with the selected engine.
+Currently verified source engines:
+
+- Next Sekai
+- PJSekai+
+- ProSeka R
+
+Bundled target engines:
+
+- RUSH (`rush`)
+- NextRUSH+ (`NextRUSH_P`)
+
+### How It Works
+
+1. The tool reads the source `.scp` package and the bundled `engine.scp` resource pack.
+2. It optionally converts supported PJSekai+ / ProSeka R style `LevelData` into the NextRUSH/RUSH target format when `--convert-level-data` is enabled.
+3. It rewrites level metadata in both `sonolus/levels/list` and individual `sonolus/levels/<level>` files to use the selected target engine.
+4. It updates default skin/background/effect/particle references to match the target engine resources unless `--no-replace-defaults` is used.
+5. It merges target engine resources and repository files, validates references, and writes the rebuilt `.scp`.
 
 ### Web App
 
@@ -14,7 +31,7 @@ Use the hosted page:
 
 <https://endoretic.github.io/SCP-Repacker/>
 
-Select the levels `.scp`, choose the target engine, and download the rebuilt package.
+Select the levels `.scp`, choose the target engine, enable LevelData conversion for PJSekai+ / ProSeka R packages, and download the rebuilt package.
 
 For local use:
 
@@ -48,30 +65,67 @@ Repack with `NextRUSH+`:
 python repack_sonolus_scp.py levels.scp engine.scp output.scp --engine NextRUSH_P
 ```
 
+Convert supported PJSekai+ / ProSeka R style LevelData while repacking:
+
+```bash
+python repack_sonolus_scp.py levels.scp engine.scp output.scp --engine NextRUSH_P --convert-level-data
+```
+
 Optional flags:
 
+- `--convert-level-data`: convert supported PJSekai+ / ProSeka R style `LevelData` into the NextRUSH/RUSH target format before rewriting engine references.
 - `--no-replace-defaults`: keep the original level resource override settings.
 - `--only-selected-engine`: include only the selected engine in the output package.
 - `--keep-old-engines`: keep engines from the original levels package too.
 
-### What It Changes
+### Project Structure
 
-- Replaces each level's full `engine` object with the selected engine item.
-- Updates level metadata in `sonolus/levels/list`, `sonolus/levels/info`, and individual `sonolus/levels/<level>` files.
-- Merges `engines`, `skins`, `backgrounds`, `effects`, `particles`, and `repository` files from the resource package.
-- Validates engine references and missing repository files before writing the output.
+```text
+repack_sonolus_scp.py       CLI entry point
+scp_repacker/
+  archive.py                .scp zip IO, JSON helpers, repository validation
+  metadata.py               Sonolus level/engine/resource metadata rewriting
+  leveldata.py              PJSekai+ / ProSeka R LevelData conversion
+assets/
+  vendor/fflate.js          Browser zip/gzip dependency
+  repack-leveldata.js       Browser LevelData conversion module
+  repack-core.js            Browser repack API and validation flow
+  app.js                    Web UI wiring
+index.html                  Static GitHub Pages app
+engine.scp                  Bundled target engine/resource pack
+testdata/                   Local sample packages for verification
+```
 
-### Notes
+### Credits
 
-- Currently, only Next Sekai is confirmed to convert correctly. Other targets may import or play incorrectly because of compatibility issues.
-- Delete older imports of the same collection in Sonolus before importing the rebuilt `.scp` to reduce cache/name collisions.
-- If the rebuilt package imports but fails during gameplay, the likely issue is LevelData compatibility, not package repacking.
+- PJSekai+ / Chart Cyanvas engine and USC conversion reference: <https://github.com/sevenc-nanashi/sonolus-pjsekai-engine-extended>
+- NextRUSH+ / Next Sekai LevelData format and conversion reference: <https://github.com/hyeon2006/sonolus-next-rush-plus-engine>
+- Browser zip/gzip support uses fflate: <https://github.com/101arrowz/fflate>
+
+All copyrights belong to their respective authors.
 
 ## 中文
 
-Sonolus SCP Repacker 用于把 Sonolus 上的 `.scp` Prosekai 类关卡包重打包成使用指定 engine 的版本。目前仅确认 Next Sekai 可以正常转换，其他目标可能会遇到兼容性问题。
+Sonolus SCP Repacker 用于把 Sonolus `.scp` Prosekai 类关卡包重打包成使用资源包中指定目标 engine 的版本。
 
-这是一个“包元数据/资源重写工具”，不是谱面转换器。它不会转换 Sonolus `LevelData`，所以实际游玩是否正常仍取决于原始关卡数据是否兼容目标 engine。
+目前已验证的来源 engine：
+
+- Next Sekai
+- PJSekai+
+- ProSeka R
+
+内置目标 engine：
+
+- RUSH (`rush`)
+- NextRUSH+ (`NextRUSH_P`)
+
+### 工作逻辑
+
+1. 工具读取来源 `.scp` 关卡包和内置 `engine.scp` 资源包。
+2. 启用 `--convert-level-data` 时，会先把已支持的 PJSekai+ / ProSeka R 风格 `LevelData` 转成 NextRUSH/RUSH 目标格式。
+3. 工具会同时重写 `sonolus/levels/list` 和每个 `sonolus/levels/<level>` 中的关卡 metadata，让关卡引用所选目标 engine。
+4. 默认会把 skin/background/effect/particle 的默认资源引用切到目标 engine 资源；使用 `--no-replace-defaults` 可保留原设置。
+5. 工具会合并目标 engine 资源和 repository 文件，检查引用，然后写出新的 `.scp`。
 
 ### 网页版
 
@@ -79,7 +133,7 @@ Sonolus SCP Repacker 用于把 Sonolus 上的 `.scp` Prosekai 类关卡包重打
 
 <https://endoretic.github.io/SCP-Repacker/>
 
-选择关卡 `.scp`、选择目标 engine，然后下载重打包后的文件。
+选择关卡 `.scp`、选择目标 engine；如果来源是 PJSekai+ / ProSeka R，启用 LevelData 转换，然后下载重打包后的文件。
 
 本地运行：
 
@@ -113,21 +167,41 @@ python repack_sonolus_scp.py levels.scp engine.scp output.scp --engine rush
 python repack_sonolus_scp.py levels.scp engine.scp output.scp --engine NextRUSH_P
 ```
 
+重打包时转换已支持的 PJSekai+ / ProSeka R 风格 LevelData：
+
+```bash
+python repack_sonolus_scp.py levels.scp engine.scp output.scp --engine NextRUSH_P --convert-level-data
+```
+
 可选参数：
 
+- `--convert-level-data`：在重写 engine 引用前，把已支持的 PJSekai+ / ProSeka R 风格 `LevelData` 转成 NextRUSH/RUSH 目标格式。
 - `--no-replace-defaults`：保留原关卡的资源覆盖设置。
 - `--only-selected-engine`：输出包中只保留选中的 engine。
 - `--keep-old-engines`：同时保留原关卡包里的旧 engines。
 
-### 工具会做什么
+### 目录结构
 
-- 用所选 engine 的完整 `item` 对象替换关卡里的 `engine`。
-- 更新 `sonolus/levels/list`、`sonolus/levels/info` 和每个 `sonolus/levels/<level>`。
-- 合并资源包里的 `engines`、`skins`、`backgrounds`、`effects`、`particles` 和 `repository`。
-- 输出前检查 engine 引用和缺失的 repository 文件。
+```text
+repack_sonolus_scp.py       CLI 入口
+scp_repacker/
+  archive.py                .scp zip 读写、JSON helper、repository 校验
+  metadata.py               Sonolus 关卡/engine/资源 metadata 重写
+  leveldata.py              PJSekai+ / ProSeka R LevelData 转换
+assets/
+  vendor/fflate.js          网页端 zip/gzip 依赖
+  repack-leveldata.js       网页端 LevelData 转换模块
+  repack-core.js            网页端重打包 API 和校验流程
+  app.js                    网页 UI 绑定
+index.html                  GitHub Pages 静态页面
+engine.scp                  内置目标 engine/资源包
+testdata/                   本地验证用样本包
+```
 
-### 注意
+### Credit
 
-- 目前仅确认 Next Sekai 可以正常转换。其他目标可能会因为兼容性问题导致导入或游玩异常。
-- 导入新 `.scp` 前，建议先删除 Sonolus 里同名的旧导入包，减少缓存或命名冲突。
-- 如果重打包后的文件能导入但游玩异常，通常是 LevelData 与目标 engine 不兼容，而不是打包流程本身的问题。
+- PJSekai+ / Chart Cyanvas engine 与 USC 转换参考：<https://github.com/sevenc-nanashi/sonolus-pjsekai-engine-extended>
+- NextRUSH+ / Next Sekai LevelData 格式与转换逻辑参考：<https://github.com/hyeon2006/sonolus-next-rush-plus-engine>
+- 网页端 zip/gzip 支持使用 fflate：<https://github.com/101arrowz/fflate>
+
+所有版权归各自作者所有。

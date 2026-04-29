@@ -20,6 +20,7 @@
   var engineSelect = document.getElementById("engine-select");
   var outputNameInput = document.getElementById("output-name");
   var replaceDefaultsInput = document.getElementById("replace-defaults");
+  var convertLevelDataInput = document.getElementById("convert-level-data");
   var onlySelectedEngineInput = document.getElementById("only-selected-engine");
   var keepOldEnginesInput = document.getElementById("keep-old-engines");
   var repackButton = document.getElementById("repack-button");
@@ -181,6 +182,7 @@
         resourceInput: state.resourceBuffer,
         engineName: engineSelect.value,
         replaceDefaults: replaceDefaultsInput.checked,
+        convertLevelData: convertLevelDataInput.checked,
         onlySelectedEngine: onlySelectedEngineInput.checked,
         keepOldEngines: keepOldEnginesInput.checked,
         outputName: outputName,
