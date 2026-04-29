@@ -33,15 +33,20 @@ EXTENDED_NOTE_TYPE_MAPPING = {
     "CriticalTraceFlickNote": "CriticalTraceFlickNote",
     "NonDirectionalTraceFlickNote": "NormalTraceFlickNote",
     "HiddenSlideStartNote": "AnchorNote",
+    "NormalSlideTraceNote": "NormalHeadTraceNote",
+    "CriticalSlideTraceNote": "CriticalHeadTraceNote",
+    "NormalSlideEndTraceNote": "NormalTailTraceNote",
+    "CriticalSlideEndTraceNote": "CriticalTailTraceNote",
     "NormalTraceSlideStartNote": "NormalHeadTraceNote",
     "CriticalTraceSlideStartNote": "CriticalHeadTraceNote",
     "NormalTraceSlideEndNote": "NormalTailTraceNote",
     "CriticalTraceSlideEndNote": "CriticalTailTraceNote",
 }
 EXTENDED_ACTIVE_CONNECTOR_KIND_MAPPING = {
+    # PJSekai+ uses bare connector names for active slides. ProSeka R also uses
+    # bare names for guides, which are filtered before regular slide conversion.
     "NormalSlideConnector": 1,
     "CriticalSlideConnector": 2,
-    # ProSeka R uses these older connector archetype names.
     "NormalActiveSlideConnector": 1,
     "CriticalActiveSlideConnector": 2,
 }
@@ -117,6 +122,15 @@ def get_num(entity: Dict[str, Any], name: str, default: float = 0) -> float:
 
 def get_field(entity: Dict[str, Any], name: str) -> Any:
     return entity_data_map(entity).get(name)
+
+
+def has_field(entity: Dict[str, Any], name: str) -> bool:
+    return name in entity_data_map(entity)
+
+
+def get_optional_num(entity: Dict[str, Any], name: str) -> Any:
+    value = get_field(entity, name)
+    return value if isinstance(value, (int, float)) else None
 
 
 def build_entity_indexes(entities: Sequence[Dict[str, Any]]) -> Tuple[Dict[str, List[Tuple[int, Dict[str, Any]]]], Dict[str, Dict[str, Any]]]:
@@ -268,15 +282,48 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
     connectors_by_index: Dict[int, EntityBuilder] = {}
     connectors_by_name: Dict[str, EntityBuilder] = {}
 
+    source_archetypes = {entity.get("archetype") for entity in entities if isinstance(entity, dict)}
+    bare_connector_archetypes = {"NormalSlideConnector", "CriticalSlideConnector"}
+    proseka_r_active_connector_archetypes = {"NormalActiveSlideConnector", "CriticalActiveSlideConnector"}
+    bare_connector_entities = [
+        entity for archetype in bare_connector_archetypes for _, entity in by_archetype.get(archetype, [])
+    ]
+    uses_proseka_r_connector_schema = bool(source_archetypes.intersection(proseka_r_active_connector_archetypes)) or (
+        bool(bare_connector_entities)
+        and not any(has_field(entity, "startType") for entity in bare_connector_entities)
+        and "TimeScaleGroup" not in source_archetypes
+    )
+
+    def is_proseka_r_guide_connector(entity: Dict[str, Any]) -> bool:
+        return (
+            entity.get("archetype") in bare_connector_archetypes
+            and uses_proseka_r_connector_schema
+            and not has_field(entity, "startType")
+        )
+
+    guide_connector_source_entities: List[Tuple[int, Dict[str, Any]]] = []
+    for index, entity in enumerate(entities):
+        if isinstance(entity, dict) and is_proseka_r_guide_connector(entity):
+            guide_connector_source_entities.append((index, entity))
+
+    guide_note_refs: Set[Any] = set()
+    for _, entity in guide_connector_source_entities:
+        for key in ("start", "end", "head", "tail"):
+            ref = get_field(entity, key)
+            if ref is not None:
+                guide_note_refs.add(ref)
+
     note_source_entities: List[Tuple[int, Dict[str, Any]]] = []
     connector_source_entities: List[Tuple[int, Dict[str, Any]]] = []
     for index, entity in enumerate(entities):
         if not isinstance(entity, dict):
             continue
         archetype = entity.get("archetype")
-        if archetype in EXTENDED_NOTE_TYPE_MAPPING:
+        name = entity.get("name")
+        is_guide_note = index in guide_note_refs or (isinstance(name, str) and name in guide_note_refs)
+        if archetype in EXTENDED_NOTE_TYPE_MAPPING and not is_guide_note:
             note_source_entities.append((index, entity))
-        if archetype in EXTENDED_ACTIVE_CONNECTOR_KIND_MAPPING:
+        if archetype in EXTENDED_ACTIVE_CONNECTOR_KIND_MAPPING and not is_proseka_r_guide_connector(entity):
             connector_source_entities.append((index, entity))
 
     for index, entity in note_source_entities:
@@ -347,12 +394,11 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
         connector.set("activeHead", segment_head)
         connector.set("activeTail", segment_tail)
 
+        for connector_note in (head, tail, segment_head, segment_tail):
+            connector_note.set("segmentKind", connector_kind)
+            connector_note.set("segmentAlpha", 1)
         head.set("connectorEase", ease)
-        head.set("segmentKind", connector_kind)
-        tail.set("segmentKind", connector_kind)
-        segment_head.set("segmentKind", connector_kind)
-        segment_head.set("segmentAlpha", 1)
-        segment_tail.set("segmentAlpha", 1)
+        tail.set("connectorEase", ease)
 
         final_entities.append(connector)
         connectors_by_index[index] = connector
@@ -442,6 +488,75 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
         anchors_by_beat.setdefault(beat, []).append(anchor)
         anchor_positions[anchor] = {position}
         return anchor
+
+    def get_anchor_from_source_ref(
+        ref: Any,
+        position: str,
+        segment_kind: float = -1,
+        segment_alpha: float = -1,
+        connector_ease: float = -1,
+    ) -> Any:
+        source = resolve_source_entity(entities, by_name, ref)
+        if not isinstance(source, dict):
+            return None
+        return get_anchor(
+            get_num(source, "#BEAT"),
+            get_num(source, "lane", 0),
+            get_num(source, "size", 0),
+            get_tsg(get_field(source, "timeScaleGroup")),
+            position,
+            segment_kind,
+            segment_alpha,
+            connector_ease,
+        )
+
+    def get_source_alpha(ref: Any) -> Any:
+        source = resolve_source_entity(entities, by_name, ref)
+        if not isinstance(source, dict):
+            return None
+        alpha = get_optional_num(source, "segmentAlpha")
+        if alpha is not None:
+            return alpha
+        return get_optional_num(source, "alpha")
+
+    def get_guide_connector_alphas(entity: Dict[str, Any]) -> Tuple[float, float]:
+        fade = get_optional_num(entity, "fade")
+        if fade is not None:
+            return EXTENDED_FADE_ALPHA_MAPPING.get(int(fade), (1.0, 1.0))
+
+        start_alpha = get_optional_num(entity, "startAlpha")
+        if start_alpha is None:
+            start_alpha = get_optional_num(entity, "segmentStartAlpha")
+        if start_alpha is None:
+            start_alpha = get_source_alpha(get_field(entity, "start"))
+
+        end_alpha = get_optional_num(entity, "endAlpha")
+        if end_alpha is None:
+            end_alpha = get_optional_num(entity, "segmentEndAlpha")
+        if end_alpha is None:
+            end_alpha = get_source_alpha(get_field(entity, "end"))
+
+        return (
+            float(start_alpha) if start_alpha is not None else 1.0,
+            float(end_alpha) if end_alpha is not None else 1.0,
+        )
+
+    for index, entity in guide_connector_source_entities:
+        ease = EXTENDED_EASE_TYPE_MAPPING.get(int(get_num(entity, "ease", 0)), 1)
+        kind = 101
+        start_alpha, end_alpha = get_guide_connector_alphas(entity)
+        start = get_anchor_from_source_ref(get_field(entity, "start"), f"proseka_r_guide_segment_head:{index}", kind, start_alpha)
+        end = get_anchor_from_source_ref(get_field(entity, "end"), f"proseka_r_guide_segment_tail:{index}", kind, end_alpha)
+        head = get_anchor_from_source_ref(get_field(entity, "head"), "proseka_r_guide_head", kind, -1, ease)
+        tail = get_anchor_from_source_ref(get_field(entity, "tail"), "proseka_r_guide_tail", kind)
+        if not (start and end and head and tail):
+            continue
+        connector = EntityBuilder("Connector")
+        connector.set("head", head)
+        connector.set("tail", tail)
+        connector.set("segmentHead", start)
+        connector.set("segmentTail", end)
+        final_entities.append(connector)
 
     for _, entity in by_archetype.get("Guide", []):
         start_tsg = get_tsg(get_field(entity, "startTimeScaleGroup"))
