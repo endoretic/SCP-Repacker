@@ -71,6 +71,25 @@
       .join("");
   }
 
+  function stripPackageExtension(filename) {
+    return String(filename || "")
+      .replace(/\.scp\.zip$/i, "")
+      .replace(/\.scp$/i, "")
+      .replace(/\.zip$/i, "");
+  }
+
+  function normalizeOutputName(filename) {
+    var normalized = String(filename || "").trim().replace(/[\\/:*?"<>|]+/g, "-");
+    normalized = normalized.replace(/\.scp\.zip$/i, ".scp").replace(/\.zip$/i, ".scp");
+    if (!normalized) {
+      normalized = deriveOutputName();
+    }
+    if (!/\.scp$/i.test(normalized)) {
+      normalized += ".scp";
+    }
+    return normalized;
+  }
+
   function rebuildEngineSelect(engines) {
     engineSelect.innerHTML = "";
     if (!engines.length) {
@@ -98,7 +117,7 @@
     if (!file) {
       return "repacked-" + engineName + ".scp";
     }
-    var baseName = file.name.replace(/\.scp$/i, "");
+    var baseName = stripPackageExtension(file.name);
     return baseName + "-" + engineName + "-repacked.scp";
   }
 
@@ -176,7 +195,8 @@
 
     try {
       var levelsBuffer = await levelsFile.arrayBuffer();
-      var outputName = outputNameInput.value.trim() || deriveOutputName();
+      var outputName = normalizeOutputName(outputNameInput.value);
+      outputNameInput.value = outputName;
       var result = core.repackPackages({
         levelsInput: levelsBuffer,
         resourceInput: state.resourceBuffer,
@@ -189,7 +209,7 @@
         resourcePackName: RESOURCE_PACK_NAME,
       });
 
-      var blob = new Blob([result.outputBytes], { type: "application/zip" });
+      var blob = new Blob([result.outputBytes], { type: "application/octet-stream" });
       state.downloadUrl = URL.createObjectURL(blob);
       downloadLink.href = state.downloadUrl;
       downloadLink.download = outputName;
