@@ -190,13 +190,9 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("LevelData does not contain an entities list")
 
     by_archetype, by_name = build_entity_indexes(entities)
-    final_entities: List[EntityBuilder] = []
-
     default_tsg = EntityBuilder("#TIMESCALE_GROUP")
-    final_entities.append(default_tsg)
-
     init = EntityBuilder("Initialization")
-    final_entities.append(init)
+    final_entities: List[EntityBuilder] = [init]
 
     for _, entity in by_archetype.get("#BPM_CHANGE", []):
         bpm = EntityBuilder("#BPM_CHANGE")
@@ -225,18 +221,13 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
             final_entities.extend(changes)
 
     source_timescale_groups = by_archetype.get("TimeScaleGroup", [])
+    fallback_tsg = default_tsg
     if source_timescale_groups:
-        default_change = {
-            "data": [
-                {"name": "#BEAT", "value": 0},
-                {"name": "#TIMESCALE", "value": 1},
-            ]
-        }
-        emit_timescale_changes(default_tsg, [default_change])
-
         for index, entity in source_timescale_groups:
             group = EntityBuilder("#TIMESCALE_GROUP")
             final_entities.append(group)
+            if fallback_tsg is default_tsg:
+                fallback_tsg = group
             timescale_groups_by_index[index] = group
             name = entity.get("name")
             if isinstance(name, str):
@@ -257,6 +248,7 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
                 raw_ref = next_ref
             emit_timescale_changes(group, source_changes)
     else:
+        final_entities.append(default_tsg)
         source_changes = [entity for _, entity in by_archetype.get("#TIMESCALE_CHANGE", [])]
         source_changes.sort(key=lambda entity: get_num(entity, "#BEAT"))
         if not source_changes:
@@ -272,10 +264,10 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
 
     def get_tsg(ref: Any) -> EntityBuilder:
         if isinstance(ref, int):
-            return timescale_groups_by_index.get(ref, default_tsg)
+            return timescale_groups_by_index.get(ref, fallback_tsg)
         if isinstance(ref, str):
-            return timescale_groups_by_name.get(ref, default_tsg)
-        return default_tsg
+            return timescale_groups_by_name.get(ref, fallback_tsg)
+        return fallback_tsg
 
     notes_by_index: Dict[int, EntityBuilder] = {}
     notes_by_name: Dict[str, EntityBuilder] = {}
@@ -326,9 +318,21 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
         if archetype in EXTENDED_ACTIVE_CONNECTOR_KIND_MAPPING and not is_proseka_r_guide_connector(entity):
             connector_source_entities.append((index, entity))
 
+    def get_target_note_archetype(entity: Dict[str, Any]) -> str:
+        archetype = str(entity.get("archetype"))
+        if uses_proseka_r_connector_schema:
+            if archetype == "HiddenSlideTickNote" and has_field(entity, "attach"):
+                return "TransientHiddenTickNote"
+            if archetype == "IgnoredSlideTickNote" and has_field(entity, "lane"):
+                return "AnchorNote"
+            if archetype == "NormalTraceFlickNote" and has_field(entity, "slide"):
+                return "NormalTailTraceFlickNote"
+            if archetype == "CriticalTraceFlickNote" and has_field(entity, "slide"):
+                return "CriticalTailTraceFlickNote"
+        return EXTENDED_NOTE_TYPE_MAPPING[archetype]
+
     for index, entity in note_source_entities:
-        source_archetype = str(entity.get("archetype"))
-        target_archetype = EXTENDED_NOTE_TYPE_MAPPING[source_archetype]
+        target_archetype = get_target_note_archetype(entity)
         note = EntityBuilder(target_archetype)
         note.set("#BEAT", get_num(entity, "#BEAT"))
         note.set("lane", get_num(entity, "lane", 0))
@@ -538,7 +542,7 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
 
         return (
             float(start_alpha) if start_alpha is not None else 1.0,
-            float(end_alpha) if end_alpha is not None else 1.0,
+            float(end_alpha) if end_alpha is not None else 0.0,
         )
 
     for index, entity in guide_connector_source_entities:

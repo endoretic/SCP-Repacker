@@ -78,6 +78,11 @@ Optional flags:
 - `--only-selected-engine`: include only the selected engine in the output package.
 - `--keep-old-engines`: keep engines from the original levels package too.
 
+### Known Issues
+
+- PJSekai+ `trace end flick` notes may be indistinguishable from normal slide end flick notes after `uscToLevelData()` has produced LevelData, because the source LevelData does not preserve the original trace end marker.
+- PJSekai+ guide conversion may create a different `AnchorNote` graph than NextRUSH-generated LevelData. Guides should remain usable, but complex guide visuals may not be perfectly identical.
+
 ### Project Structure
 
 ```text
@@ -179,6 +184,11 @@ python repack_sonolus_scp.py levels.scp engine.scp output.scp --engine NextRUSH_
 - `--no-replace-defaults`：保留原关卡的资源覆盖设置。
 - `--only-selected-engine`：输出包中只保留选中的 engine。
 - `--keep-old-engines`：同时保留原关卡包里的旧 engines。
+
+### 已知问题
+
+- PJSekai+ 的 `trace end flick` 在 `uscToLevelData()` 生成 LevelData 后可能无法和普通 slide end flick 区分，因为来源 LevelData 不保留原始 trace end 标记。
+- PJSekai+ guide 转换出的 `AnchorNote` 图结构可能和 NextRUSH 直接生成的 LevelData 不完全一致。Guide 应该仍可用，但复杂 guide 的视觉表现可能无法完全一致。
 
 ### 目录结构
 
