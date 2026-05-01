@@ -389,11 +389,8 @@
     var indexes = buildEntityIndexes(entities);
     var byArchetype = indexes.byArchetype;
     var byName = indexes.byName;
-    var finalEntities = [];
-
     var defaultTsg = new EntityBuilder("#TIMESCALE_GROUP");
-    finalEntities.push(defaultTsg);
-    finalEntities.push(new EntityBuilder("Initialization"));
+    var finalEntities = [new EntityBuilder("Initialization")];
 
     (byArchetype.get("#BPM_CHANGE") || []).forEach(function (entry) {
       var bpm = new EntityBuilder("#BPM_CHANGE");
@@ -427,12 +424,14 @@
     }
 
     var sourceTimescaleGroups = byArchetype.get("TimeScaleGroup") || [];
+    var fallbackTsg = defaultTsg;
     if (sourceTimescaleGroups.length) {
-      emitTimescaleChanges(defaultTsg, [{ data: [{ name: "#BEAT", value: 0 }, { name: "#TIMESCALE", value: 1 }] }]);
-
       sourceTimescaleGroups.forEach(function (entry) {
         var group = new EntityBuilder("#TIMESCALE_GROUP");
         finalEntities.push(group);
+        if (fallbackTsg === defaultTsg) {
+          fallbackTsg = group;
+        }
         timescaleGroupsByIndex.set(entry.index, group);
         if (typeof entry.entity.name === "string") {
           timescaleGroupsByName.set(entry.entity.name, group);
@@ -457,6 +456,7 @@
         emitTimescaleChanges(group, sourceChanges);
       });
     } else {
+      finalEntities.push(defaultTsg);
       var sourceChanges = (byArchetype.get("#TIMESCALE_CHANGE") || [])
         .map(function (entry) {
           return entry.entity;
@@ -477,7 +477,7 @@
       if (typeof ref === "string" && timescaleGroupsByName.has(ref)) {
         return timescaleGroupsByName.get(ref);
       }
-      return defaultTsg;
+      return fallbackTsg;
     }
 
     var notesByIndex = new Map();
@@ -557,8 +557,26 @@
       }
     });
 
+    function getTargetNoteArchetype(entity) {
+      if (usesProsekaRConnectorSchema) {
+        if (entity.archetype === "HiddenSlideTickNote" && hasField(entity, "attach")) {
+          return "TransientHiddenTickNote";
+        }
+        if (entity.archetype === "IgnoredSlideTickNote" && hasField(entity, "lane")) {
+          return "AnchorNote";
+        }
+        if (entity.archetype === "NormalTraceFlickNote" && hasField(entity, "slide")) {
+          return "NormalTailTraceFlickNote";
+        }
+        if (entity.archetype === "CriticalTraceFlickNote" && hasField(entity, "slide")) {
+          return "CriticalTailTraceFlickNote";
+        }
+      }
+      return EXTENDED_NOTE_TYPE_MAPPING[entity.archetype];
+    }
+
     noteSourceEntities.forEach(function (entry) {
-      var note = new EntityBuilder(EXTENDED_NOTE_TYPE_MAPPING[entry.entity.archetype]);
+      var note = new EntityBuilder(getTargetNoteArchetype(entry.entity));
       note.set("#BEAT", getNum(entry.entity, "#BEAT", 0));
       note.set("lane", getNum(entry.entity, "lane", 0));
       note.set("size", getNum(entry.entity, "size", 0));
@@ -768,7 +786,7 @@
       if (endAlpha === undefined) endAlpha = getOptionalNum(entity, "segmentEndAlpha");
       if (endAlpha === undefined) endAlpha = getSourceAlpha(getField(entity, "end"));
 
-      return [startAlpha === undefined ? 1 : startAlpha, endAlpha === undefined ? 1 : endAlpha];
+      return [startAlpha === undefined ? 1 : startAlpha, endAlpha === undefined ? 0 : endAlpha];
     }
 
     guideConnectorSourceEntities.forEach(function (entry) {

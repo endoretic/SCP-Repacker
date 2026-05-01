@@ -1,4 +1,5 @@
 .vscode/
 testdata/
 __pycache__/
+.tmp/
 AGENT.md
