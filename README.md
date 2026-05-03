@@ -33,6 +33,8 @@ Use the hosted page:
 
 Select the levels `.scp`, choose the target engine, enable LevelData conversion for PJSekai+ / ProSeka R packages, and download the rebuilt package.
 
+Need a `.scp` pack? See [Export an SCP pack from Sonolus](./Document/Tutorial.md).
+
 For local use:
 
 ```bash
@@ -139,6 +141,8 @@ Sonolus SCP Repacker 用于把 Sonolus `.scp` Prosekai 类关卡包重打包成�
 <https://endoretic.github.io/SCP-Repacker/>
 
 选择关卡 `.scp`、选择目标 engine；如果来源是 PJSekai+ / ProSeka R，启用 LevelData 转换，然后下载重打包后的文件。
+
+还没有 `.scp` 包时，可参考 [Sonolus 导出 SCP 包教程](./Document/Tutorial.md)。
 
 本地运行：
 
