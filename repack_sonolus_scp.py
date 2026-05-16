@@ -52,7 +52,7 @@ def main() -> int:
     ap.add_argument("levels_scp", help="Input .scp containing levels to patch")
     ap.add_argument("resource_scp", help="Resource .scp containing target engines/resources")
     ap.add_argument("output_scp", help="Output .scp path")
-    ap.add_argument("--engine", help="Target engine item name, e.g. rush or NextRUSH_P")
+    ap.add_argument("--engine", help="Target engine item name, e.g. NextRUSH_P")
     ap.add_argument("--list-engines", action="store_true", help="List engines in the resource .scp and exit")
     ap.add_argument(
         "--no-replace-defaults",
@@ -73,7 +73,7 @@ def main() -> int:
         "--convert-level-data",
         action="store_true",
         help=(
-            "Convert supported PJSekai+/ProSeka R style LevelData to the NextRUSH/RUSH target format "
+            "Convert supported PJSekai+/ProSeka R style LevelData to the NextRUSH+ target format "
             "before rewriting engine references."
         ),
     )
