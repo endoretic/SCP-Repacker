@@ -119,7 +119,7 @@
     var prefix = "sonolus/" + category + "/";
     var skip = new Set(["sonolus/" + category + "/list", "sonolus/" + category + "/info"]);
     return Array.from(entries.keys()).filter(function (path) {
-      return path.indexOf(prefix) === 0 && !skip.has(path);
+      return path.indexOf(prefix) === 0 && !path.endsWith("/") && !skip.has(path);
     });
   }
 
