@@ -12,10 +12,11 @@ LEVEL_CATEGORY = "levels"
 ENGINE_CATEGORY = "engines"
 RESOURCE_OVERRIDE_FIELDS: Sequence[Tuple[str, str]] = (
     ("skin", "useSkin"),
-    ("background", "useBackground"),
     ("effect", "useEffect"),
     ("particle", "useParticle"),
 )
+BACKGROUND_RESOURCE_KEY = "background"
+BACKGROUND_USAGE_KEY = "useBackground"
 
 def item_from_doc(doc: Any) -> Dict[str, Any]:
     if isinstance(doc, dict) and isinstance(doc.get("item"), dict):
@@ -124,9 +125,31 @@ def print_available_engines(resource_entries: Dict[str, bytes]) -> None:
             print(f"  {posixpath.basename(p)}  |  (failed to read item)")
 
 
+def effective_background_item(item: Dict[str, Any]) -> Any:
+    usage = item.get(BACKGROUND_USAGE_KEY)
+    if isinstance(usage, dict):
+        usage_item = usage.get("item")
+        if isinstance(usage_item, dict):
+            return copy.deepcopy(usage_item)
+        if usage.get("useDefault") is True:
+            engine = item.get("engine")
+            if isinstance(engine, dict):
+                engine_background = engine.get(BACKGROUND_RESOURCE_KEY)
+                if isinstance(engine_background, dict) and engine_background:
+                    return copy.deepcopy(engine_background)
+
+    background = item.get(BACKGROUND_RESOURCE_KEY)
+    if isinstance(background, dict) and background:
+        return copy.deepcopy(background)
+    return None
+
+
 def patch_level_item(item: Dict[str, Any], target_engine: Dict[str, Any], replace_defaults: bool) -> Dict[str, Any]:
+    background_item = effective_background_item(item)
     patched = copy.deepcopy(item)
     patched["engine"] = copy.deepcopy(target_engine)
+    if isinstance(background_item, dict):
+        patched[BACKGROUND_USAGE_KEY] = {"useDefault": False, "item": background_item}
 
     if replace_defaults:
         # Force levels back onto the selected engine defaults so old custom

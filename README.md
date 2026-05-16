@@ -21,7 +21,7 @@ Bundled target engine:
 1. The tool reads the source `.scp` package and the bundled `engine.scp` resource pack.
 2. It optionally converts supported PJSekai+ / ProSeka R style `LevelData` into the NextRUSH+ target format when `--convert-level-data` is enabled.
 3. It rewrites level metadata in both `sonolus/levels/list` and individual `sonolus/levels/<level>` files to use NextRUSH+.
-4. It updates default skin/background/effect/particle references to match the target engine resources unless `--no-replace-defaults` is used.
+4. It replaces the skin, effect, and particle with the target engine's resources (except backgrounds); pass `--no-replace-defaults` to keep the level's originals instead.
 5. It merges target engine resources and repository files, validates references, and writes the rebuilt `.scp`.
 
 ### Web App
@@ -69,7 +69,7 @@ python repack_sonolus_scp.py levels.scp engine.scp output.scp --engine NextRUSH_
 Optional flags:
 
 - `--convert-level-data`: convert supported PJSekai+ / ProSeka R style `LevelData` into the NextRUSH+ target format before rewriting engine references.
-- `--no-replace-defaults`: keep the original level resource override settings.
+- `--no-replace-defaults`: keep each level's original skin, effect, and particle as-is instead of replacing them with the target engine's resources. (Backgrounds are always kept regardless.)
 - `--only-selected-engine`: include only the selected engine in the output package.
 - `--keep-old-engines`: keep engines from the original levels package too.
 
@@ -125,7 +125,7 @@ Sonolus SCP Repacker 用于把 Sonolus `.scp` Prosekai 风格关卡包重打包�
 1. 工具读取来源 `.scp` 关卡包和内置 `engine.scp` 资源包。
 2. 启用 `--convert-level-data` 时，会先把已支持的 PJSekai+ / ProSeka R 风格 `LevelData` 转成 NextRUSH+ 目标格式。
 3. 工具会同时重写 `sonolus/levels/list` 和每个 `sonolus/levels/<level>` 中的关卡 metadata，让关卡引用 NextRUSH+。
-4. 默认会把 skin/background/effect/particle 的默认资源引用切到目标 engine 资源；使用 `--no-replace-defaults` 可保留原设置。
+4. 工具默认情况下会把关卡的 skin、effect、particle 替换为目标 engine 的资源（背景除外）；加上 `--no-replace-defaults` 则保留关卡原有的设置不变。
 5. 工具会合并目标 engine 资源和 repository 文件，检查引用，然后写出新的 `.scp`。
 
 ### 网页版
@@ -173,7 +173,7 @@ python repack_sonolus_scp.py levels.scp engine.scp output.scp --engine NextRUSH_
 可选参数：
 
 - `--convert-level-data`：在重写 engine 引用前，把已支持的 PJSekai+ / ProSeka R 风格 `LevelData` 转成 NextRUSH+ 目标格式。
-- `--no-replace-defaults`：保留原关卡的资源覆盖设置。
+- `--no-replace-defaults`：保留每个关卡原有的 skin、effect、particle，不替换为目标 engine 的资源。（背景无论如何都会保留。）
 - `--only-selected-engine`：输出包中只保留选中的 engine。
 - `--keep-old-engines`：同时保留原关卡包里的旧 engines。
 
