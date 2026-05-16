@@ -85,7 +85,10 @@
     6: 107,
     7: 108,
   };
-  var PROSEKA_R_GUIDE_KIND = 103;
+  var PROSEKA_R_GUIDE_ARCHETYPE_KIND = {
+    "NormalSlideConnector": 103,   // Green
+    "CriticalSlideConnector": 105,  // Yellow
+  };
 
   function deepCopy(value) {
     if (value === null || value === undefined) {
@@ -208,7 +211,7 @@
     var prefix = "sonolus/" + category + "/";
     var skip = new Set(["sonolus/" + category + "/list", "sonolus/" + category + "/info"]);
     return Array.from(entries.keys()).filter(function (path) {
-      return path.indexOf(prefix) === 0 && !skip.has(path);
+      return path.indexOf(prefix) === 0 && !path.endsWith("/") && !skip.has(path);
     });
   }
 
@@ -1228,7 +1231,7 @@
     guideConnectorSourceEntities.forEach(function (entry) {
       var entity = entry.entity;
       var ease = EXTENDED_EASE_TYPE_MAPPING[String(getNum(entity, "ease", 0))] || 1;
-      var kind = PROSEKA_R_GUIDE_KIND;
+      var kind = PROSEKA_R_GUIDE_ARCHETYPE_KIND[entity.archetype] || 103;
       var alphas = getGuideConnectorAlphas(entity);
       var start = getAnchorFromSourceRef(getField(entity, "start"), "proseka_r_guide_segment_head:" + entry.index, kind, alphas[0]);
       var end = getAnchorFromSourceRef(getField(entity, "end"), "proseka_r_guide_segment_tail:" + entry.index, kind, alphas[1]);
