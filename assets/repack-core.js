@@ -22,10 +22,11 @@
   var ENGINE_CATEGORY = "engines";
   var RESOURCE_OVERRIDE_FIELDS = [
     ["skin", "useSkin"],
-    ["background", "useBackground"],
     ["effect", "useEffect"],
     ["particle", "useParticle"],
   ];
+  var BACKGROUND_RESOURCE_KEY = "background";
+  var BACKGROUND_USAGE_KEY = "useBackground";
   var textDecoder = new TextDecoder("utf-8");
   var textEncoder = new TextEncoder();
 
@@ -224,9 +225,35 @@
     return listAvailableEnginesFromEntries(readZip(resourceInput));
   }
 
+  function effectiveBackgroundItem(item) {
+    var usage = item && item[BACKGROUND_USAGE_KEY];
+    if (usage && typeof usage === "object" && !Array.isArray(usage)) {
+      if (usage.item && typeof usage.item === "object" && !Array.isArray(usage.item)) {
+        return deepCopy(usage.item);
+      }
+      if (usage.useDefault === true) {
+        var engine = item.engine;
+        var engineBackground = engine && typeof engine === "object" ? engine[BACKGROUND_RESOURCE_KEY] : null;
+        if (engineBackground && typeof engineBackground === "object" && !Array.isArray(engineBackground)) {
+          return deepCopy(engineBackground);
+        }
+      }
+    }
+
+    var background = item && item[BACKGROUND_RESOURCE_KEY];
+    if (background && typeof background === "object" && !Array.isArray(background)) {
+      return deepCopy(background);
+    }
+    return null;
+  }
+
   function patchLevelItem(item, targetEngine, replaceDefaults) {
+    var backgroundItem = effectiveBackgroundItem(item);
     var patched = deepCopy(item);
     patched.engine = deepCopy(targetEngine);
+    if (backgroundItem) {
+      patched[BACKGROUND_USAGE_KEY] = { useDefault: false, item: backgroundItem };
+    }
 
     if (replaceDefaults) {
       for (var index = 0; index < RESOURCE_OVERRIDE_FIELDS.length; index += 1) {

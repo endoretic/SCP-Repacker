@@ -57,7 +57,10 @@ def main() -> int:
     ap.add_argument(
         "--no-replace-defaults",
         action="store_true",
-        help="Only replace level.engine; keep each level's original skin/background/effect/particle defaults",
+        help=(
+            "Only replace level.engine; keep each level's original skin/effect/particle defaults. "
+            "Backgrounds are always preserved."
+        ),
     )
     ap.add_argument(
         "--only-selected-engine",

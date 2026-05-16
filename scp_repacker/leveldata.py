@@ -78,6 +78,7 @@ EXTENDED_GUIDE_KIND_MAPPING = {
     6: 107,
     7: 108,
 }
+PROSEKA_R_GUIDE_KIND = 103
 
 
 class EntityBuilder:
@@ -1016,7 +1017,7 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
 
     for index, entity in guide_connector_source_entities:
         ease = EXTENDED_EASE_TYPE_MAPPING.get(int(get_num(entity, "ease", 0)), 1)
-        kind = 101
+        kind = PROSEKA_R_GUIDE_KIND
         start_alpha, end_alpha = get_guide_connector_alphas(entity)
         start = get_anchor_from_source_ref(get_field(entity, "start"), f"proseka_r_guide_segment_head:{index}", kind, start_alpha)
         end = get_anchor_from_source_ref(get_field(entity, "end"), f"proseka_r_guide_segment_tail:{index}", kind, end_alpha)

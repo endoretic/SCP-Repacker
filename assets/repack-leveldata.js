@@ -85,6 +85,7 @@
     6: 107,
     7: 108,
   };
+  var PROSEKA_R_GUIDE_KIND = 103;
 
   function deepCopy(value) {
     if (value === null || value === undefined) {
@@ -1227,7 +1228,7 @@
     guideConnectorSourceEntities.forEach(function (entry) {
       var entity = entry.entity;
       var ease = EXTENDED_EASE_TYPE_MAPPING[String(getNum(entity, "ease", 0))] || 1;
-      var kind = 101;
+      var kind = PROSEKA_R_GUIDE_KIND;
       var alphas = getGuideConnectorAlphas(entity);
       var start = getAnchorFromSourceRef(getField(entity, "start"), "proseka_r_guide_segment_head:" + entry.index, kind, alphas[0]);
       var end = getAnchorFromSourceRef(getField(entity, "end"), "proseka_r_guide_segment_tail:" + entry.index, kind, alphas[1]);
