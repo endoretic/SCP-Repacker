@@ -349,6 +349,31 @@
     return undefined;
   }
 
+  function nearlyEqual(left, right) {
+    return Math.abs(left - right) < 1e-6;
+  }
+
+  function lerp(left, right, amount) {
+    return left + (right - left) * amount;
+  }
+
+  function unlerp(left, right, value) {
+    return (value - left) / (right - left);
+  }
+
+  function clamp01(value) {
+    return Math.min(1, Math.max(0, value));
+  }
+
+  function applyEase(easeType, value) {
+    var t = clamp01(value);
+    if (easeType === 2) return t * t;
+    if (easeType === 3) return 1 - (1 - t) * (1 - t);
+    if (easeType === 4) return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    if (easeType === 5) return t < 0.5 ? (1 - (1 - 2 * t) * (1 - 2 * t)) / 2 : 0.5 + ((2 * t - 1) * (2 * t - 1)) / 2;
+    return t;
+  }
+
   function isNextRushLevelData(levelData) {
     return Boolean(
       levelData &&
@@ -390,7 +415,45 @@
     var byArchetype = indexes.byArchetype;
     var byName = indexes.byName;
     var defaultTsg = new EntityBuilder("#TIMESCALE_GROUP");
-    var finalEntities = [new EntityBuilder("Initialization")];
+    var finalEntities = [defaultTsg, new EntityBuilder("Initialization")];
+
+    var bpmChanges = (byArchetype.get("#BPM_CHANGE") || [])
+      .map(function (entry) {
+        return { beat: getNum(entry.entity, "#BEAT", 0), bpm: getNum(entry.entity, "#BPM", 0) };
+      })
+      .sort(function (left, right) {
+        return left.beat - right.beat;
+      });
+    var bpmChangeInfos = [];
+    var lastBeat = 0;
+    var lastTime = 0;
+    var lastBpm = bpmChanges.length ? bpmChanges[0].bpm : 120;
+    bpmChanges.forEach(function (change) {
+      lastTime += ((change.beat - lastBeat) * 60) / lastBpm;
+      bpmChangeInfos.push({ beat: change.beat, bpm: change.bpm, time: lastTime });
+      lastBeat = change.beat;
+      lastBpm = change.bpm;
+    });
+
+    function beatToTime(beat) {
+      if (!bpmChangeInfos.length) return (beat * 60) / 120;
+      var current = bpmChangeInfos[0];
+      for (var index = 0; index < bpmChangeInfos.length; index += 1) {
+        if (bpmChangeInfos[index].beat > beat) break;
+        current = bpmChangeInfos[index];
+      }
+      return current.time + ((beat - current.beat) * 60) / current.bpm;
+    }
+
+    function timeToBeat(time) {
+      if (!bpmChangeInfos.length) return (time * 120) / 60;
+      var current = bpmChangeInfos[0];
+      for (var index = 0; index < bpmChangeInfos.length; index += 1) {
+        if (bpmChangeInfos[index].time > time) break;
+        current = bpmChangeInfos[index];
+      }
+      return current.beat + ((time - current.time) * current.bpm) / 60;
+    }
 
     (byArchetype.get("#BPM_CHANGE") || []).forEach(function (entry) {
       var bpm = new EntityBuilder("#BPM_CHANGE");
@@ -401,13 +464,19 @@
 
     var timescaleGroupsByIndex = new Map();
     var timescaleGroupsByName = new Map();
+    var timescaleChangesByIndex = new Map();
+    var timescaleChangesByName = new Map();
 
     function emitTimescaleChanges(group, sourceChanges) {
       var changes = [];
+      var changeInfos = [];
       sourceChanges.forEach(function (rawChange) {
+        var beat = getNum(rawChange, "#BEAT", 0);
+        var timescale = getNum(rawChange, "timeScale", getNum(rawChange, "#TIMESCALE", 1));
+        changeInfos.push({ beat: beat, timeScale: timescale });
         var change = new EntityBuilder("#TIMESCALE_CHANGE");
-        change.set("#BEAT", getNum(rawChange, "#BEAT", 0));
-        change.set("#TIMESCALE", getNum(rawChange, "timeScale", getNum(rawChange, "#TIMESCALE", 1)));
+        change.set("#BEAT", beat);
+        change.set("#TIMESCALE", timescale);
         change.set("#TIMESCALE_SKIP", getNum(rawChange, "#TIMESCALE_SKIP", 0));
         change.set("#TIMESCALE_GROUP", group);
         change.set("#TIMESCALE_EASE", getNum(rawChange, "#TIMESCALE_EASE", 0));
@@ -421,6 +490,10 @@
         group.set("first", changes[0]);
         finalEntities.push.apply(finalEntities, changes);
       }
+      changeInfos.sort(function (left, right) {
+        return left.beat - right.beat;
+      });
+      return changeInfos;
     }
 
     var sourceTimescaleGroups = byArchetype.get("TimeScaleGroup") || [];
@@ -429,9 +502,6 @@
       sourceTimescaleGroups.forEach(function (entry) {
         var group = new EntityBuilder("#TIMESCALE_GROUP");
         finalEntities.push(group);
-        if (fallbackTsg === defaultTsg) {
-          fallbackTsg = group;
-        }
         timescaleGroupsByIndex.set(entry.index, group);
         if (typeof entry.entity.name === "string") {
           timescaleGroupsByName.set(entry.entity.name, group);
@@ -453,10 +523,13 @@
           }
           rawRef = nextRef;
         }
-        emitTimescaleChanges(group, sourceChanges);
+        var changeInfos = emitTimescaleChanges(group, sourceChanges);
+        timescaleChangesByIndex.set(entry.index, changeInfos);
+        if (typeof entry.entity.name === "string") {
+          timescaleChangesByName.set(entry.entity.name, changeInfos);
+        }
       });
     } else {
-      finalEntities.push(defaultTsg);
       var sourceChanges = (byArchetype.get("#TIMESCALE_CHANGE") || [])
         .map(function (entry) {
           return entry.entity;
@@ -477,7 +550,59 @@
       if (typeof ref === "string" && timescaleGroupsByName.has(ref)) {
         return timescaleGroupsByName.get(ref);
       }
-      return fallbackTsg;
+      return undefined;
+    }
+
+    function getTsgOrDefault(ref) {
+      return getTsg(ref) || fallbackTsg;
+    }
+
+    function getTsgChanges(ref) {
+      if (typeof ref === "number") return timescaleChangesByIndex.get(ref) || [];
+      if (typeof ref === "string") return timescaleChangesByName.get(ref) || [];
+      return [];
+    }
+
+    function timeToScaledTime(time, changes) {
+      if (!changes.length) return time;
+      var firstTime = beatToTime(changes[0].beat);
+      if (time < firstTime) return time;
+      var scaledTime = firstTime;
+      for (var index = 0; index < changes.length; index += 1) {
+        var start = changes[index];
+        var startTime = beatToTime(start.beat);
+        var endTime = index === changes.length - 1 ? undefined : beatToTime(changes[index + 1].beat);
+        if (endTime === undefined || time < endTime) {
+          return scaledTime + (time - startTime) * start.timeScale;
+        }
+        scaledTime += (endTime - startTime) * start.timeScale;
+      }
+      return time;
+    }
+
+    function scaledTimeToTime(scaledTime, changes) {
+      if (!changes.length) return scaledTime;
+      var firstTime = beatToTime(changes[0].beat);
+      if (scaledTime < firstTime) return scaledTime;
+      var currentScaledTime = firstTime;
+      for (var index = 0; index < changes.length; index += 1) {
+        var start = changes[index];
+        var startTime = beatToTime(start.beat);
+        var endTime = index === changes.length - 1 ? undefined : beatToTime(changes[index + 1].beat);
+        if (endTime === undefined) {
+          if (start.timeScale === 0) return Number.POSITIVE_INFINITY;
+          return startTime + (scaledTime - currentScaledTime) / start.timeScale;
+        }
+        var nextScaledTime = currentScaledTime + (endTime - startTime) * start.timeScale;
+        var minScaledTime = Math.min(currentScaledTime, nextScaledTime);
+        var maxScaledTime = Math.max(currentScaledTime, nextScaledTime);
+        if (minScaledTime <= scaledTime && scaledTime <= maxScaledTime) {
+          if (Math.abs(nextScaledTime - currentScaledTime) < 1e-6) return startTime;
+          return lerp(startTime, endTime, unlerp(currentScaledTime, nextScaledTime, scaledTime));
+        }
+        currentScaledTime = nextScaledTime;
+      }
+      return scaledTime;
     }
 
     var notesByIndex = new Map();
@@ -582,6 +707,8 @@
       note.set("size", getNum(entry.entity, "size", 0));
       note.set("direction", EXTENDED_FLICK_DIRECTION_MAPPING[String(getNum(entry.entity, "direction", 0))] || 0);
       note.set("segmentKind", 1);
+      note.set("segmentAlpha", 1);
+      note.set("segmentLayer", 0);
       note.set("isAttached", 0);
       note.set("connectorEase", 0);
       note.set("isSeparator", 0);
@@ -602,59 +729,349 @@
       return undefined;
     }
 
-    connectorSourceEntities.forEach(function (entry) {
-      var startRef = getField(entry.entity, "start");
-      var head = getNote(getField(entry.entity, "head"));
-      var tailRef = getField(entry.entity, "tail");
-      var tail = getNote(tailRef);
-      var segmentHead = getNote(startRef);
-      var segmentTail = getNote(getField(entry.entity, "end"));
+    function resolveOriginal(ref) {
+      return resolveSourceEntity(entities, byName, ref);
+    }
 
-      if (!segmentTail) {
-        var ultimateTailRef = tailRef;
-        var visited = new Set();
-        while (ultimateTailRef !== undefined && !visited.has(ultimateTailRef)) {
-          visited.add(ultimateTailRef);
-          var nextConnector = connectorSourceEntities.find(function (candidate) {
-            return getField(candidate.entity, "head") === ultimateTailRef && getField(candidate.entity, "start") === startRef;
-          });
-          if (!nextConnector) {
-            break;
-          }
-          ultimateTailRef = getField(nextConnector.entity, "tail");
+    function sourceArchetypeOf(ref) {
+      var source = resolveOriginal(ref);
+      return source ? source.archetype || "" : "";
+    }
+
+    function sourceBeat(ref) {
+      var source = resolveOriginal(ref);
+      return source ? getNum(source, "#BEAT", 0) : 0;
+    }
+
+    function getTimeScaleAt(changes, beat) {
+      for (var index = changes.length - 1; index >= 0; index -= 1) {
+        if (changes[index].beat < beat - 1e-6) {
+          return changes[index].timeScale;
         }
-        segmentTail = getNote(ultimateTailRef);
+      }
+      return 1;
+    }
+
+    var activeSlideStartArchetypes = new Set([
+      "NormalSlideStartNote",
+      "CriticalSlideStartNote",
+      "HiddenSlideStartNote",
+      "NormalTraceSlideStartNote",
+      "CriticalTraceSlideStartNote",
+    ]);
+
+    function shouldUseStartAsHead(startRef, headRef) {
+      if (startRef === headRef) return false;
+      var start = resolveOriginal(startRef);
+      var head = resolveOriginal(headRef);
+      if (!(start && head)) return false;
+      if (head.archetype !== "HiddenSlideStartNote") return false;
+      if (!activeSlideStartArchetypes.has(start.archetype)) return false;
+      return (
+        nearlyEqual(getNum(start, "#BEAT", 0), getNum(head, "#BEAT", 0)) &&
+        nearlyEqual(getNum(start, "lane", 0), getNum(head, "lane", 0)) &&
+        nearlyEqual(getNum(start, "size", 0), getNum(head, "size", 0))
+      );
+    }
+
+    function createConnectorAnchor(beat, lane, size, tsg, kind) {
+      var anchor = new EntityBuilder("AnchorNote");
+      anchor.set("#BEAT", beat);
+      anchor.set("lane", lane);
+      anchor.set("size", size);
+      anchor.set("direction", 0);
+      anchor.set("#TIMESCALE_GROUP", tsg || defaultTsg);
+      anchor.set("isAttached", 0);
+      anchor.set("connectorEase", 1);
+      anchor.set("isSeparator", 1);
+      anchor.set("segmentKind", kind);
+      anchor.set("segmentAlpha", 1);
+      anchor.set("segmentLayer", 0);
+      finalEntities.push(anchor);
+      return anchor;
+    }
+
+    function getConnectorSplitAnchors(headOriginal, tailOriginal, tsg, kind, ease) {
+      var headBeat = getNum(headOriginal, "#BEAT", 0);
+      var tailBeat = getNum(tailOriginal, "#BEAT", 0);
+      if (tailBeat <= headBeat) return [];
+
+      var headChanges = getTsgChanges(getField(headOriginal, "timeScaleGroup"));
+      var tailChanges = getTsgChanges(getField(tailOriginal, "timeScaleGroup"));
+      var splitBeats = headChanges
+        .filter(function (change) {
+          if (!(headBeat + 1e-6 < change.beat && change.beat < tailBeat - 1e-6)) return false;
+          return !nearlyEqual(change.timeScale, getTimeScaleAt(headChanges, change.beat));
+        })
+        .map(function (change) {
+          return change.beat;
+        });
+      if (!splitBeats.length) return [];
+
+      var headScaledTime = timeToScaledTime(beatToTime(headBeat), headChanges);
+      var tailScaledTime = timeToScaledTime(beatToTime(tailBeat), tailChanges);
+      if (Math.abs(tailScaledTime - headScaledTime) < 1e-6) return [];
+
+      if (ease !== 1) {
+        for (var sample = 1; sample < 8; sample += 1) {
+          var scaledTime = lerp(headScaledTime, tailScaledTime, sample / 8);
+          var beat = timeToBeat(scaledTimeToTime(scaledTime, headChanges));
+          if (Number.isFinite(beat) && headBeat + 1e-6 < beat && beat < tailBeat - 1e-6) {
+            splitBeats.push(beat);
+          }
+        }
       }
 
-      if (!segmentTail) {
-        segmentTail = tail;
-      }
-      if (!(head && tail && segmentHead && segmentTail)) {
-        return;
-      }
+      var uniqueSplitBeats = splitBeats
+        .sort(function (left, right) {
+          return left - right;
+        })
+        .filter(function (beat, index, beats) {
+          return index === 0 || !nearlyEqual(beat, beats[index - 1]);
+        });
 
-      var connectorKind = EXTENDED_ACTIVE_CONNECTOR_KIND_MAPPING[entry.entity.archetype];
-      var ease = EXTENDED_EASE_TYPE_MAPPING[String(getNum(entry.entity, "ease", 0))] || 1;
-      var connector = new EntityBuilder("Connector");
-      connector.set("head", head);
-      connector.set("tail", tail);
-      connector.set("segmentHead", segmentHead);
-      connector.set("segmentTail", segmentTail);
-      connector.set("activeHead", segmentHead);
-      connector.set("activeTail", segmentTail);
+      var headLane = getNum(headOriginal, "lane", 0);
+      var tailLane = getNum(tailOriginal, "lane", 0);
+      var headSize = getNum(headOriginal, "size", 0);
+      var tailSize = getNum(tailOriginal, "size", 0);
 
-      [head, tail, segmentHead, segmentTail].forEach(function (connectorNote) {
-        connectorNote.set("segmentKind", connectorKind);
-        connectorNote.set("segmentAlpha", 1);
+      return uniqueSplitBeats.map(function (beat) {
+        var scaledTime = timeToScaledTime(beatToTime(beat), headChanges);
+        var frac = unlerp(headScaledTime, tailScaledTime, scaledTime);
+        var easedFrac = applyEase(ease, frac);
+        return createConnectorAnchor(beat, lerp(headLane, tailLane, easedFrac), lerp(headSize, tailSize, easedFrac), tsg, kind);
       });
-      head.set("connectorEase", ease);
-      tail.set("connectorEase", ease);
+    }
 
-      finalEntities.push(connector);
-      connectorsByIndex.set(entry.index, connector);
-      if (typeof entry.entity.name === "string") {
-        connectorsByName.set(entry.entity.name, connector);
+    function isReverseHiddenPopConnector(headOriginal, tailOriginal) {
+      if (!(headOriginal && tailOriginal)) return false;
+      if (headOriginal.archetype !== "HiddenSlideStartNote") return false;
+      if (tailOriginal.archetype !== "HiddenSlideTickNote") return false;
+      return getNum(tailOriginal, "#BEAT", 0) < getNum(headOriginal, "#BEAT", 0) - 1e-6;
+    }
+
+    function isSlideTickRef(ref) {
+      return (
+        ["IgnoredSlideTickNote", "NormalSlideTickNote", "CriticalSlideTickNote", "HiddenSlideTickNote", "NormalAttachedSlideTickNote", "CriticalAttachedSlideTickNote"].indexOf(
+          sourceArchetypeOf(ref)
+        ) !== -1
+      );
+    }
+
+    function isScoredSlideTickRef(ref) {
+      return ["NormalSlideTickNote", "CriticalSlideTickNote", "NormalAttachedSlideTickNote", "CriticalAttachedSlideTickNote"].indexOf(sourceArchetypeOf(ref)) !== -1;
+    }
+
+    function getUltimateTailRef(archetype, startRef, tailRef) {
+      var ultimateTailRef = tailRef;
+      var ultimateTailBeat = sourceBeat(tailRef);
+      var visited = new Set();
+
+      function visit(headRef) {
+        var key = String(startRef) + "|" + String(headRef);
+        if (headRef === undefined || visited.has(key)) return;
+        visited.add(key);
+        var nextConnectors = connectorSourceEntities.filter(function (candidate) {
+          return candidate.entity.archetype === archetype && getField(candidate.entity, "head") === headRef && getField(candidate.entity, "start") === startRef;
+        });
+        if (!nextConnectors.length) {
+          nextConnectors = connectorSourceEntities.filter(function (candidate) {
+            return candidate.entity.archetype === archetype && getField(candidate.entity, "head") === headRef;
+          });
+        }
+        if (!nextConnectors.length) {
+          var beat = sourceBeat(headRef);
+          if (beat >= ultimateTailBeat) {
+            ultimateTailBeat = beat;
+            ultimateTailRef = headRef;
+          }
+          return;
+        }
+        nextConnectors.forEach(function (nextConnector) {
+          visit(getField(nextConnector.entity, "tail"));
+        });
       }
+
+      visit(tailRef);
+      if (isScoredSlideTickRef(ultimateTailRef)) {
+        connectorSourceEntities.forEach(function (candidate) {
+          if (candidate.entity.archetype !== archetype || getField(candidate.entity, "start") !== startRef) return;
+          var candidateTailRef = getField(candidate.entity, "tail");
+          var candidateTailBeat = sourceBeat(candidateTailRef);
+          if (candidateTailBeat > ultimateTailBeat) {
+            ultimateTailRef = candidateTailRef;
+            ultimateTailBeat = candidateTailBeat;
+          }
+        });
+      }
+      return ultimateTailRef;
+    }
+
+    function getUltimateStartRef(archetype, startRef, headRef) {
+      if (!isSlideTickRef(headRef)) return startRef;
+      var ultimateStartRef = startRef;
+      var ultimateStartBeat = sourceBeat(startRef);
+      var visited = new Set();
+
+      function visit(currentHeadRef) {
+        var key = archetype + "|" + String(currentHeadRef);
+        if (currentHeadRef === undefined || visited.has(key)) return;
+        visited.add(key);
+        if (!isSlideTickRef(currentHeadRef)) return;
+        connectorSourceEntities
+          .filter(function (candidate) {
+            return candidate.entity.archetype === archetype && getField(candidate.entity, "tail") === currentHeadRef;
+          })
+          .forEach(function (previousConnector) {
+            var previousStartRef = getField(previousConnector.entity, "start");
+            var previousStartBeat = sourceBeat(previousStartRef);
+            if (previousStartBeat <= ultimateStartBeat) {
+              ultimateStartBeat = previousStartBeat;
+              ultimateStartRef = previousStartRef;
+            }
+            visit(getField(previousConnector.entity, "head"));
+          });
+      }
+
+      visit(headRef);
+      return ultimateStartRef;
+    }
+
+    function setInferredActiveHead(note, activeHead) {
+      if (!note.refs.has("activeHead")) note.set("activeHead", activeHead);
+    }
+
+    function isIgnoredSlideTickRef(ref) {
+      var source = resolveOriginal(ref);
+      if (!(source && source.archetype === "IgnoredSlideTickNote")) return false;
+      return !(usesProsekaRConnectorSchema && hasField(source, "lane"));
+    }
+
+    function getNextConnectorWithHead(archetype, startRef, headRef) {
+      var found = connectorSourceEntities.find(function (candidate) {
+        return candidate.entity.archetype === archetype && getField(candidate.entity, "start") === startRef && getField(candidate.entity, "head") === headRef;
+      });
+      if (found) return found;
+      return connectorSourceEntities.find(function (candidate) {
+        return candidate.entity.archetype === archetype && getField(candidate.entity, "head") === headRef;
+      });
+    }
+
+    function resolveConnectorTailRef(archetype, startRef, tailRef) {
+      var skippedNoteRefs = [];
+      var skippedConnectors = [];
+      var visited = new Set();
+      var resolvedTailRef = tailRef;
+      while (isIgnoredSlideTickRef(resolvedTailRef)) {
+        if (resolvedTailRef === undefined) break;
+        var key = String(resolvedTailRef);
+        if (visited.has(key)) break;
+        visited.add(key);
+        skippedNoteRefs.push(resolvedTailRef);
+        var nextConnector = getNextConnectorWithHead(archetype, startRef, resolvedTailRef);
+        if (!nextConnector) break;
+        skippedConnectors.push(nextConnector);
+        resolvedTailRef = getField(nextConnector.entity, "tail");
+      }
+      return { tailRef: resolvedTailRef, skippedNoteRefs: skippedNoteRefs, skippedConnectors: skippedConnectors };
+    }
+
+    connectorSourceEntities.forEach(function (entry) {
+      var sourceArchetype = entry.entity.archetype;
+      var startRef = getField(entry.entity, "start");
+      var headRef = getField(entry.entity, "head");
+      if (isIgnoredSlideTickRef(headRef)) return;
+
+      var tailInfo = resolveConnectorTailRef(sourceArchetype, startRef, getField(entry.entity, "tail"));
+      var tailRef = tailInfo.tailRef;
+      if (isIgnoredSlideTickRef(tailRef)) return;
+
+      var rawHeadOriginal = resolveOriginal(headRef);
+      var tailOriginal = resolveOriginal(tailRef);
+      var rawHead = getNote(headRef);
+      var tail = getNote(tailRef);
+      var activeStartRef = getUltimateStartRef(sourceArchetype, startRef, headRef);
+      var activeHead = getNote(activeStartRef);
+      var usesStartAsHead = shouldUseStartAsHead(startRef, headRef);
+      var head = usesStartAsHead ? activeHead : rawHead;
+      var headOriginal = resolveOriginal(usesStartAsHead ? startRef : headRef);
+      var activeTail = getNote(getField(entry.entity, "end"));
+      if (!activeTail) activeTail = getNote(getUltimateTailRef(sourceArchetype, activeStartRef, tailRef));
+      if (!activeTail) activeTail = tail;
+      if (!(head && tail && activeHead && activeTail)) return;
+
+      var connectorKind = EXTENDED_ACTIVE_CONNECTOR_KIND_MAPPING[sourceArchetype];
+      var ease = EXTENDED_EASE_TYPE_MAPPING[String(getNum(entry.entity, "ease", 0))] || 1;
+      var tsg = headOriginal ? getTsg(getField(headOriginal, "timeScaleGroup")) : undefined;
+      var reverseHiddenPopConnector = isReverseHiddenPopConnector(rawHeadOriginal, tailOriginal);
+      var splitAnchors = headOriginal && tailOriginal && !reverseHiddenPopConnector ? getConnectorSplitAnchors(headOriginal, tailOriginal, tsg, connectorKind, ease) : [];
+      var segmentEase = splitAnchors.length ? 1 : ease;
+      var segmentNotes = [head].concat(splitAnchors, [tail]);
+      var segments = [];
+
+      if (reverseHiddenPopConnector && rawHeadOriginal && tailOriginal) {
+        var segmentHead = createConnectorAnchor(
+          getNum(rawHeadOriginal, "#BEAT", 0),
+          getNum(rawHeadOriginal, "lane", 0),
+          getNum(rawHeadOriginal, "size", 0),
+          getTsg(getField(rawHeadOriginal, "timeScaleGroup")) || tsg,
+          connectorKind
+        );
+        var connector = new EntityBuilder("Connector");
+        connector.set("head", head);
+        connector.set("tail", tail);
+        connector.set("segmentHead", segmentHead);
+        connector.set("segmentTail", tail);
+        connector.set("legacyHiddenPop", 1);
+        connector.set("activeHead", activeHead);
+        connector.set("activeTail", activeTail);
+        finalEntities.push(connector);
+        setInferredActiveHead(segmentHead, activeHead);
+        segments.push({ head: segmentHead, tail: tail });
+      } else {
+        for (var index = 0; index < segmentNotes.length - 1; index += 1) {
+          var segmentHead2 = segmentNotes[index];
+          var segmentTail = segmentNotes[index + 1];
+          var connector2 = new EntityBuilder("Connector");
+          connector2.set("head", segmentHead2);
+          connector2.set("tail", segmentTail);
+          connector2.set("segmentHead", segmentHead2);
+          connector2.set("segmentTail", segmentTail);
+          connector2.set("activeHead", activeHead);
+          connector2.set("activeTail", activeTail);
+          finalEntities.push(connector2);
+          segments.push({ head: segmentHead2, tail: segmentTail });
+        }
+      }
+
+      var connectorLink = { head: head, tail: tail, activeHead: activeHead, activeTail: activeTail, segments: segments };
+      segmentNotes.slice(0, -1).forEach(function (segmentHead) {
+        segmentHead.set("connectorEase", segmentEase);
+        segmentHead.set("segmentKind", connectorKind);
+        segmentHead.set("segmentAlpha", 1);
+      });
+      tail.set("segmentKind", connectorKind);
+      tail.set("segmentAlpha", 1);
+      activeHead.set("segmentKind", connectorKind);
+      segmentNotes.forEach(function (segmentNote) {
+        setInferredActiveHead(segmentNote, activeHead);
+      });
+      setInferredActiveHead(activeTail, activeHead);
+      tailInfo.skippedNoteRefs.forEach(function (skippedNoteRef) {
+        var skippedNote = getNote(skippedNoteRef);
+        if (!skippedNote) return;
+        skippedNote.set("attachHead", head);
+        skippedNote.set("attachTail", tail);
+        skippedNote.set("isAttached", 1);
+        setInferredActiveHead(skippedNote, activeHead);
+      });
+
+      connectorsByIndex.set(entry.index, connectorLink);
+      if (typeof entry.entity.name === "string") connectorsByName.set(entry.entity.name, connectorLink);
+      tailInfo.skippedConnectors.forEach(function (skippedConnector) {
+        connectorsByIndex.set(skippedConnector.index, connectorLink);
+        if (typeof skippedConnector.entity.name === "string") connectorsByName.set(skippedConnector.entity.name, connectorLink);
+      });
     });
 
     function getConnector(ref) {
@@ -667,20 +1084,35 @@
       return undefined;
     }
 
+    function getAttachSegment(connector, beat) {
+      for (var index = 0; index < connector.segments.length; index += 1) {
+        var segment = connector.segments[index];
+        var headBeat = segment.head.beat();
+        var tailBeat = segment.tail.beat();
+        var minBeat = Math.min(headBeat, tailBeat);
+        var maxBeat = Math.max(headBeat, tailBeat);
+        if (minBeat - 1e-6 <= beat && beat <= maxBeat + 1e-6) {
+          return segment;
+        }
+      }
+      return { head: connector.head, tail: connector.tail };
+    }
+
     notesByIndex.forEach(function (note, index) {
       var source = entities[index];
-      note.set("#TIMESCALE_GROUP", getTsg(getField(source, "timeScaleGroup")));
+      note.set("#TIMESCALE_GROUP", getTsgOrDefault(getField(source, "timeScaleGroup")));
 
       var attachConnector = getConnector(getField(source, "attach"));
-      if (attachConnector && attachConnector.refs.has("head") && attachConnector.refs.has("tail")) {
-        note.set("attachHead", attachConnector.refs.get("head"));
-        note.set("attachTail", attachConnector.refs.get("tail"));
+      if (attachConnector) {
+        var attachSegment = getAttachSegment(attachConnector, getNum(source, "#BEAT", 0));
+        note.set("attachHead", attachSegment.head);
+        note.set("attachTail", attachSegment.tail);
         note.set("isAttached", 1);
       }
 
       var slideConnector = getConnector(getField(source, "slide"));
-      if (slideConnector && slideConnector.refs.has("activeHead")) {
-        note.set("activeHead", slideConnector.refs.get("activeHead"));
+      if (slideConnector) {
+        note.set("activeHead", slideConnector.activeHead);
       }
     });
 
@@ -703,6 +1135,7 @@
       segmentAlpha = segmentAlpha === undefined ? -1 : segmentAlpha;
       connectorEase = connectorEase === undefined ? -1 : connectorEase;
 
+      var anchorTsg = tsg || defaultTsg;
       var anchors = anchorsByBeat.get(beat) || [];
       for (var index = 0; index < anchors.length; index += 1) {
         var anchor = anchors[index];
@@ -713,7 +1146,7 @@
         if (
           anchor.values.get("lane") === lane &&
           anchor.values.get("size") === size &&
-          anchor.refs.get("#TIMESCALE_GROUP") === tsg &&
+          anchor.refs.get("#TIMESCALE_GROUP") === anchorTsg &&
           (segmentKind === -1 || anchor.values.get("segmentKind") === segmentKind || anchor.values.get("segmentKind") === -1) &&
           (segmentAlpha === -1 || anchor.values.get("segmentAlpha") === segmentAlpha || anchor.values.get("segmentAlpha") === -1) &&
           (connectorEase === -1 || anchor.values.get("connectorEase") === connectorEase || anchor.values.get("connectorEase") === -1)
@@ -731,9 +1164,11 @@
       newAnchor.set("#BEAT", beat);
       newAnchor.set("lane", lane);
       newAnchor.set("size", size);
-      newAnchor.set("#TIMESCALE_GROUP", tsg);
+      newAnchor.set("direction", 0);
+      newAnchor.set("#TIMESCALE_GROUP", anchorTsg);
       newAnchor.set("segmentKind", segmentKind);
       newAnchor.set("segmentAlpha", segmentAlpha);
+      newAnchor.set("segmentLayer", 0);
       newAnchor.set("connectorEase", connectorEase);
       newAnchor.set("isAttached", 0);
       newAnchor.set("isSeparator", 0);
@@ -753,7 +1188,7 @@
         getNum(source, "#BEAT", 0),
         getNum(source, "lane", 0),
         getNum(source, "size", 0),
-        getTsg(getField(source, "timeScaleGroup")),
+        getTsgOrDefault(getField(source, "timeScaleGroup")),
         position,
         segmentKind,
         segmentAlpha,
@@ -819,7 +1254,7 @@
         getNum(entity, "startBeat", 0),
         getNum(entity, "startLane", 0),
         getNum(entity, "startSize", 0),
-        getTsg(getField(entity, "startTimeScaleGroup")),
+        getTsgOrDefault(getField(entity, "startTimeScaleGroup")),
         "segment_head",
         kind,
         fade[0]
@@ -828,7 +1263,7 @@
         getNum(entity, "endBeat", 0),
         getNum(entity, "endLane", 0),
         getNum(entity, "endSize", 0),
-        getTsg(getField(entity, "endTimeScaleGroup")),
+        getTsgOrDefault(getField(entity, "endTimeScaleGroup")),
         "segment_tail",
         kind,
         fade[1]
@@ -837,7 +1272,7 @@
         getNum(entity, "headBeat", 0),
         getNum(entity, "headLane", 0),
         getNum(entity, "headSize", 0),
-        getTsg(getField(entity, "headTimeScaleGroup")),
+        getTsgOrDefault(getField(entity, "headTimeScaleGroup")),
         "head",
         kind,
         -1,
@@ -847,7 +1282,7 @@
         getNum(entity, "tailBeat", 0),
         getNum(entity, "tailLane", 0),
         getNum(entity, "tailSize", 0),
-        getTsg(getField(entity, "tailTimeScaleGroup")),
+        getTsgOrDefault(getField(entity, "tailTimeScaleGroup")),
         "tail",
         kind
       );

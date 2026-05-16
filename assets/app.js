@@ -105,8 +105,8 @@
       option.textContent = (engine.title || "(no title)") + " | " + (engine.name || "(unnamed)");
       engineSelect.appendChild(option);
     });
-    if (engines.some(function (engine) { return engine.name === "rush"; })) {
-      engineSelect.value = "rush";
+    if (engines.some(function (engine) { return engine.name === "NextRUSH_P"; })) {
+      engineSelect.value = "NextRUSH_P";
     }
     engineSelect.disabled = false;
   }
