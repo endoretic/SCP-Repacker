@@ -686,6 +686,41 @@
       }
     });
 
+    var sourceEntityIndexes = new Map();
+    entities.forEach(function (entity, index) {
+      if (entity && typeof entity === "object" && !sourceEntityIndexes.has(entity)) {
+        sourceEntityIndexes.set(entity, index);
+      }
+    });
+
+    var connectorsByHeadRef = new Map();
+    var connectorsByTailRef = new Map();
+    var connectorsByStartRef = new Map();
+
+    function pushConnectorIndex(map, key, entry) {
+      if (key === undefined || key === null) return;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(entry);
+    }
+
+    connectorSourceEntities.forEach(function (entry) {
+      pushConnectorIndex(connectorsByHeadRef, getField(entry.entity, "head"), entry);
+      pushConnectorIndex(connectorsByTailRef, getField(entry.entity, "tail"), entry);
+      pushConnectorIndex(connectorsByStartRef, getField(entry.entity, "start"), entry);
+    });
+
+    function getConnectorsByHeadRef(ref) {
+      return ref === undefined || ref === null ? [] : connectorsByHeadRef.get(ref) || [];
+    }
+
+    function getConnectorsByTailRef(ref) {
+      return ref === undefined || ref === null ? [] : connectorsByTailRef.get(ref) || [];
+    }
+
+    function getConnectorsByStartRef(ref) {
+      return ref === undefined || ref === null ? [] : connectorsByStartRef.get(ref) || [];
+    }
+
     function getTargetNoteArchetype(entity) {
       if (usesProsekaRConnectorSchema) {
         if (entity.archetype === "HiddenSlideTickNote" && hasField(entity, "attach")) {
@@ -787,7 +822,7 @@
       anchor.set("#TIMESCALE_GROUP", tsg || defaultTsg);
       anchor.set("isAttached", 0);
       anchor.set("connectorEase", 1);
-      anchor.set("isSeparator", 1);
+      anchor.set("isSeparator", 0);
       anchor.set("segmentKind", kind);
       anchor.set("segmentAlpha", 1);
       anchor.set("segmentLayer", 0);
@@ -875,11 +910,13 @@
         var key = String(startRef) + "|" + String(headRef);
         if (headRef === undefined || visited.has(key)) return;
         visited.add(key);
-        var nextConnectors = connectorSourceEntities.filter(function (candidate) {
-          return candidate.entity.archetype === archetype && getField(candidate.entity, "head") === headRef && getField(candidate.entity, "start") === startRef;
+
+        var headConnectors = getConnectorsByHeadRef(headRef);
+        var nextConnectors = headConnectors.filter(function (candidate) {
+          return candidate.entity.archetype === archetype && getField(candidate.entity, "start") === startRef;
         });
         if (!nextConnectors.length) {
-          nextConnectors = connectorSourceEntities.filter(function (candidate) {
+          nextConnectors = headConnectors.filter(function (candidate) {
             return candidate.entity.archetype === archetype && getField(candidate.entity, "head") === headRef;
           });
         }
@@ -898,8 +935,8 @@
 
       visit(tailRef);
       if (isScoredSlideTickRef(ultimateTailRef)) {
-        connectorSourceEntities.forEach(function (candidate) {
-          if (candidate.entity.archetype !== archetype || getField(candidate.entity, "start") !== startRef) return;
+        getConnectorsByStartRef(startRef).forEach(function (candidate) {
+          if (candidate.entity.archetype !== archetype) return;
           var candidateTailRef = getField(candidate.entity, "tail");
           var candidateTailBeat = sourceBeat(candidateTailRef);
           if (candidateTailBeat > ultimateTailBeat) {
@@ -914,7 +951,6 @@
     function getUltimateStartRef(archetype, startRef, headRef) {
       if (!isSlideTickRef(headRef)) return startRef;
       var ultimateStartRef = startRef;
-      var ultimateStartBeat = sourceBeat(startRef);
       var visited = new Set();
 
       function visit(currentHeadRef) {
@@ -922,19 +958,21 @@
         if (currentHeadRef === undefined || visited.has(key)) return;
         visited.add(key);
         if (!isSlideTickRef(currentHeadRef)) return;
-        connectorSourceEntities
-          .filter(function (candidate) {
-            return candidate.entity.archetype === archetype && getField(candidate.entity, "tail") === currentHeadRef;
-          })
-          .forEach(function (previousConnector) {
-            var previousStartRef = getField(previousConnector.entity, "start");
-            var previousStartBeat = sourceBeat(previousStartRef);
-            if (previousStartBeat <= ultimateStartBeat) {
-              ultimateStartBeat = previousStartBeat;
-              ultimateStartRef = previousStartRef;
-            }
-            visit(getField(previousConnector.entity, "head"));
+
+        var tailConnectors = getConnectorsByTailRef(currentHeadRef);
+        var previousConnectors = tailConnectors.filter(function (candidate) {
+          return candidate.entity.archetype === archetype;
+        });
+        if (!previousConnectors.length) {
+          previousConnectors = tailConnectors.filter(function (candidate) {
+            return Object.prototype.hasOwnProperty.call(EXTENDED_ACTIVE_CONNECTOR_KIND_MAPPING, candidate.entity.archetype);
           });
+        }
+
+        previousConnectors.forEach(function (previousConnector) {
+          ultimateStartRef = getField(previousConnector.entity, "start");
+          visit(getField(previousConnector.entity, "head"));
+        });
       }
 
       visit(headRef);
@@ -952,12 +990,13 @@
     }
 
     function getNextConnectorWithHead(archetype, startRef, headRef) {
-      var found = connectorSourceEntities.find(function (candidate) {
-        return candidate.entity.archetype === archetype && getField(candidate.entity, "start") === startRef && getField(candidate.entity, "head") === headRef;
+      var headConnectors = getConnectorsByHeadRef(headRef);
+      var found = headConnectors.find(function (candidate) {
+        return candidate.entity.archetype === archetype && getField(candidate.entity, "start") === startRef;
       });
       if (found) return found;
-      return connectorSourceEntities.find(function (candidate) {
-        return candidate.entity.archetype === archetype && getField(candidate.entity, "head") === headRef;
+      return headConnectors.find(function (candidate) {
+        return candidate.entity.archetype === archetype;
       });
     }
 
@@ -980,6 +1019,52 @@
       return { tailRef: resolvedTailRef, skippedNoteRefs: skippedNoteRefs, skippedConnectors: skippedConnectors };
     }
 
+    function refKey(ref) {
+      var original = resolveOriginal(ref);
+      var index = original ? sourceEntityIndexes.get(original) : undefined;
+      return index !== undefined ? "index:" + index : typeof ref + ":" + String(ref);
+    }
+
+    function getRefBeat(ref) {
+      return sourceBeat(ref);
+    }
+
+    function getConnectorActiveStartRef(archetype, startRef, headRef, endRef) {
+      if (endRef !== undefined && endRef !== null) return startRef;
+      return getUltimateStartRef(archetype, startRef, headRef);
+    }
+
+    var activeTailRefsByStart = new Map();
+
+    function getActiveTailRef(activeStartRef) {
+      var key = refKey(activeStartRef);
+      if (activeTailRefsByStart.has(key)) return activeTailRefsByStart.get(key);
+
+      var activeTailRef;
+      var activeTailBeat = Number.NEGATIVE_INFINITY;
+
+      connectorSourceEntities.forEach(function (candidate) {
+        var startRef = getField(candidate.entity, "start");
+        var headRef = getField(candidate.entity, "head");
+        if (isIgnoredSlideTickRef(headRef)) return;
+
+        var endRef = getField(candidate.entity, "end");
+        var connectorActiveStartRef = getConnectorActiveStartRef(candidate.entity.archetype, startRef, headRef, endRef);
+        if (refKey(connectorActiveStartRef) !== key) return;
+
+        var tailInfo = resolveConnectorTailRef(candidate.entity.archetype, startRef, getField(candidate.entity, "tail"));
+        var candidateTailRef = endRef !== undefined && endRef !== null ? endRef : getUltimateTailRef(candidate.entity.archetype, activeStartRef, tailInfo.tailRef);
+        var candidateTailBeat = getRefBeat(candidateTailRef);
+        if (candidateTailBeat >= activeTailBeat) {
+          activeTailBeat = candidateTailBeat;
+          activeTailRef = candidateTailRef;
+        }
+      });
+
+      activeTailRefsByStart.set(key, activeTailRef);
+      return activeTailRef;
+    }
+
     connectorSourceEntities.forEach(function (entry) {
       var sourceArchetype = entry.entity.archetype;
       var startRef = getField(entry.entity, "start");
@@ -994,13 +1079,14 @@
       var tailOriginal = resolveOriginal(tailRef);
       var rawHead = getNote(headRef);
       var tail = getNote(tailRef);
-      var activeStartRef = getUltimateStartRef(sourceArchetype, startRef, headRef);
+      var endRef = getField(entry.entity, "end");
+      var activeStartRef = getConnectorActiveStartRef(sourceArchetype, startRef, headRef, endRef);
       var activeHead = getNote(activeStartRef);
       var usesStartAsHead = shouldUseStartAsHead(startRef, headRef);
       var head = usesStartAsHead ? activeHead : rawHead;
       var headOriginal = resolveOriginal(usesStartAsHead ? startRef : headRef);
-      var activeTail = getNote(getField(entry.entity, "end"));
-      if (!activeTail) activeTail = getNote(getUltimateTailRef(sourceArchetype, activeStartRef, tailRef));
+      var activeTail = getNote(endRef !== undefined && endRef !== null ? endRef : getActiveTailRef(activeStartRef));
+      if (!activeTail) activeTail = getNote(getActiveTailRef(activeStartRef));
       if (!activeTail) activeTail = tail;
       if (!(head && tail && activeHead && activeTail)) return;
 
