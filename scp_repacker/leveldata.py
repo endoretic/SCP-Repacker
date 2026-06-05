@@ -447,6 +447,37 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
         if archetype in EXTENDED_ACTIVE_CONNECTOR_KIND_MAPPING and not is_proseka_r_guide_connector(entity):
             connector_source_entities.append((index, entity))
 
+    source_entity_index_by_id = {
+        id(entity): index for index, entity in enumerate(entities) if isinstance(entity, dict)
+    }
+    connectors_by_head_ref: Dict[Any, List[Tuple[int, Dict[str, Any]]]] = {}
+    connectors_by_tail_ref: Dict[Any, List[Tuple[int, Dict[str, Any]]]] = {}
+    connectors_by_start_ref: Dict[Any, List[Tuple[int, Dict[str, Any]]]] = {}
+
+    def push_connector_index(
+        index: Dict[Any, List[Tuple[int, Dict[str, Any]]]],
+        key: Any,
+        entry: Tuple[int, Dict[str, Any]],
+    ) -> None:
+        if key is None:
+            return
+        index.setdefault(key, []).append(entry)
+
+    for entry in connector_source_entities:
+        _, entity = entry
+        push_connector_index(connectors_by_head_ref, get_field(entity, "head"), entry)
+        push_connector_index(connectors_by_tail_ref, get_field(entity, "tail"), entry)
+        push_connector_index(connectors_by_start_ref, get_field(entity, "start"), entry)
+
+    def get_connectors_by_head_ref(ref: Any) -> List[Tuple[int, Dict[str, Any]]]:
+        return [] if ref is None else connectors_by_head_ref.get(ref, [])
+
+    def get_connectors_by_tail_ref(ref: Any) -> List[Tuple[int, Dict[str, Any]]]:
+        return [] if ref is None else connectors_by_tail_ref.get(ref, [])
+
+    def get_connectors_by_start_ref(ref: Any) -> List[Tuple[int, Dict[str, Any]]]:
+        return [] if ref is None else connectors_by_start_ref.get(ref, [])
+
     def get_target_note_archetype(entity: Dict[str, Any]) -> str:
         archetype = str(entity.get("archetype"))
         if uses_proseka_r_connector_schema:
@@ -533,7 +564,7 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
         anchor.set("#TIMESCALE_GROUP", tsg or default_tsg)
         anchor.set("isAttached", 0)
         anchor.set("connectorEase", 1)
-        anchor.set("isSeparator", 1)
+        anchor.set("isSeparator", 0)
         anchor.set("segmentKind", kind)
         anchor.set("segmentAlpha", 1)
         anchor.set("segmentLayer", 0)
@@ -643,18 +674,18 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
             if head_ref is None or key in visited:
                 return
             visited.add(key)
+
+            head_connectors = get_connectors_by_head_ref(head_ref)
             next_connectors = [
                 candidate
-                for _, candidate in connector_source_entities
-                if candidate.get("archetype") == archetype
-                and get_field(candidate, "head") == head_ref
-                and get_field(candidate, "start") == start_ref
+                for _, candidate in head_connectors
+                if candidate.get("archetype") == archetype and get_field(candidate, "start") == start_ref
             ]
             if not next_connectors:
                 next_connectors = [
                     candidate
-                    for _, candidate in connector_source_entities
-                    if candidate.get("archetype") == archetype and get_field(candidate, "head") == head_ref
+                    for _, candidate in head_connectors
+                    if candidate.get("archetype") == archetype
                 ]
             if not next_connectors:
                 beat = source_beat(head_ref)
@@ -667,8 +698,8 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
 
         visit(tail_ref)
         if is_scored_slide_tick_ref(ultimate_tail_ref):
-            for _, candidate in connector_source_entities:
-                if candidate.get("archetype") != archetype or get_field(candidate, "start") != start_ref:
+            for _, candidate in get_connectors_by_start_ref(start_ref):
+                if candidate.get("archetype") != archetype:
                     continue
                 candidate_tail_ref = get_field(candidate, "tail")
                 candidate_tail_beat = source_beat(candidate_tail_ref)
@@ -681,28 +712,30 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
         if not is_slide_tick_ref(head_ref):
             return start_ref
         ultimate_start_ref = start_ref
-        ultimate_start_beat = source_beat(start_ref)
         visited: Set[Tuple[str, str]] = set()
 
         def visit(current_head_ref: Any) -> None:
-            nonlocal ultimate_start_ref, ultimate_start_beat
+            nonlocal ultimate_start_ref
             key = (archetype, str(current_head_ref))
             if current_head_ref is None or key in visited:
                 return
             visited.add(key)
             if not is_slide_tick_ref(current_head_ref):
                 return
+
+            tail_connectors = get_connectors_by_tail_ref(current_head_ref)
             previous_connectors = [
-                candidate
-                for _, candidate in connector_source_entities
-                if candidate.get("archetype") == archetype and get_field(candidate, "tail") == current_head_ref
+                candidate for _, candidate in tail_connectors if candidate.get("archetype") == archetype
             ]
+            if not previous_connectors:
+                previous_connectors = [
+                    candidate
+                    for _, candidate in tail_connectors
+                    if candidate.get("archetype") in EXTENDED_ACTIVE_CONNECTOR_KIND_MAPPING
+                ]
+
             for previous_connector in previous_connectors:
-                previous_start_ref = get_field(previous_connector, "start")
-                previous_start_beat = source_beat(previous_start_ref)
-                if previous_start_beat <= ultimate_start_beat:
-                    ultimate_start_beat = previous_start_beat
-                    ultimate_start_ref = previous_start_ref
+                ultimate_start_ref = get_field(previous_connector, "start")
                 visit(get_field(previous_connector, "head"))
 
         visit(head_ref)
@@ -719,15 +752,12 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
         return not (uses_proseka_r_connector_schema and has_field(source, "lane"))
 
     def get_next_connector_with_head(archetype: str, start_ref: Any, head_ref: Any) -> Any:
-        for index, candidate in connector_source_entities:
-            if (
-                candidate.get("archetype") == archetype
-                and get_field(candidate, "start") == start_ref
-                and get_field(candidate, "head") == head_ref
-            ):
+        head_connectors = get_connectors_by_head_ref(head_ref)
+        for index, candidate in head_connectors:
+            if candidate.get("archetype") == archetype and get_field(candidate, "start") == start_ref:
                 return index, candidate
-        for index, candidate in connector_source_entities:
-            if candidate.get("archetype") == archetype and get_field(candidate, "head") == head_ref:
+        for index, candidate in head_connectors:
+            if candidate.get("archetype") == archetype:
                 return index, candidate
         return None
 
@@ -755,6 +785,59 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
             "skipped_connectors": skipped_connectors,
         }
 
+    def ref_key(ref: Any) -> str:
+        original = resolve_original(ref)
+        index = source_entity_index_by_id.get(id(original)) if isinstance(original, dict) else None
+        return f"index:{index}" if index is not None else f"{type(ref).__name__}:{ref}"
+
+    def get_ref_beat(ref: Any) -> float:
+        return source_beat(ref)
+
+    def get_connector_active_start_ref(archetype: str, start_ref: Any, head_ref: Any, end_ref: Any) -> Any:
+        if end_ref is not None:
+            return start_ref
+        return get_ultimate_start_ref(archetype, start_ref, head_ref)
+
+    active_tail_refs_by_start: Dict[str, Any] = {}
+
+    def get_active_tail_ref(active_start_ref: Any) -> Any:
+        key = ref_key(active_start_ref)
+        if key in active_tail_refs_by_start:
+            return active_tail_refs_by_start[key]
+
+        active_tail_ref = None
+        active_tail_beat = -math.inf
+
+        for _, candidate in connector_source_entities:
+            start_ref = get_field(candidate, "start")
+            head_ref = get_field(candidate, "head")
+            if is_ignored_slide_tick_ref(head_ref):
+                continue
+
+            end_ref = get_field(candidate, "end")
+            connector_active_start_ref = get_connector_active_start_ref(
+                str(candidate.get("archetype")),
+                start_ref,
+                head_ref,
+                end_ref,
+            )
+            if ref_key(connector_active_start_ref) != key:
+                continue
+
+            tail_info = resolve_connector_tail_ref(str(candidate.get("archetype")), start_ref, get_field(candidate, "tail"))
+            candidate_tail_ref = (
+                end_ref
+                if end_ref is not None
+                else get_ultimate_tail_ref(str(candidate.get("archetype")), active_start_ref, tail_info["tail_ref"])
+            )
+            candidate_tail_beat = get_ref_beat(candidate_tail_ref)
+            if candidate_tail_beat >= active_tail_beat:
+                active_tail_beat = candidate_tail_beat
+                active_tail_ref = candidate_tail_ref
+
+        active_tail_refs_by_start[key] = active_tail_ref
+        return active_tail_ref
+
     for index, entity in connector_source_entities:
         source_archetype = str(entity.get("archetype"))
         start_ref = get_field(entity, "start")
@@ -772,15 +855,16 @@ def convert_extended_level_data(level_data: Dict[str, Any]) -> Dict[str, Any]:
         raw_head = get_note(head_ref)
         tail = get_note(tail_ref)
 
-        active_start_ref = get_ultimate_start_ref(source_archetype, start_ref, head_ref)
+        end_ref = get_field(entity, "end")
+        active_start_ref = get_connector_active_start_ref(source_archetype, start_ref, head_ref, end_ref)
         active_head = get_note(active_start_ref)
         uses_start_as_head = should_use_start_as_head(start_ref, head_ref)
         head = active_head if uses_start_as_head else raw_head
         head_original = resolve_original(start_ref if uses_start_as_head else head_ref)
 
-        active_tail = get_note(get_field(entity, "end"))
+        active_tail = get_note(end_ref if end_ref is not None else get_active_tail_ref(active_start_ref))
         if active_tail is None:
-            active_tail = get_note(get_ultimate_tail_ref(source_archetype, active_start_ref, tail_ref))
+            active_tail = get_note(get_active_tail_ref(active_start_ref))
         if active_tail is None:
             active_tail = tail
 
